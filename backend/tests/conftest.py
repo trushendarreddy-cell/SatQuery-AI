@@ -38,10 +38,98 @@ def valid_geotiff_path(tmp_path_factory):
 
 
 @pytest.fixture(scope="session")
+def geotiff_date1_path(tmp_path_factory):
+    """Generates a 4-band optical GeoTIFF acquired on May 1, 2024."""
+    fn = tmp_path_factory.mktemp("data") / "scene_2024_05_01.tif"
+    width, height = 10, 10
+    transform = from_origin(500000, 3000000, 10, 10)
+    crs = "EPSG:32643"
+    data = np.ones((4, height, width), dtype=np.uint16) * 1000
+    
+    with rasterio.open(
+        fn,
+        "w",
+        driver="GTiff",
+        height=height,
+        width=width,
+        count=4,
+        dtype=rasterio.uint16,
+        crs=crs,
+        transform=transform,
+    ) as dst:
+        dst.write(data)
+        dst.update_tags(TIFFTAG_DATETIME="2024:05:01 10:00:00")
+    return fn
+
+
+@pytest.fixture(scope="session")
+def geotiff_date2_path(tmp_path_factory):
+    """Generates a 4-band optical GeoTIFF acquired on Nov 1, 2024."""
+    fn = tmp_path_factory.mktemp("data") / "scene_2024_11_01.tif"
+    width, height = 10, 10
+    transform = from_origin(500000, 3000000, 10, 10)
+    crs = "EPSG:32643"
+    data = np.ones((4, height, width), dtype=np.uint16) * 1500
+    
+    with rasterio.open(
+        fn,
+        "w",
+        driver="GTiff",
+        height=height,
+        width=width,
+        count=4,
+        dtype=rasterio.uint16,
+        crs=crs,
+        transform=transform,
+    ) as dst:
+        dst.write(data)
+        dst.update_tags(TIFFTAG_DATETIME="2024:11:01 10:00:00")
+    return fn
+
+
+@pytest.fixture(scope="session")
+def sar_geotiff_path(tmp_path_factory):
+    """Generates a 1-band SAR Radar GeoTIFF (Sentinel-1 VV polarization)."""
+    fn = tmp_path_factory.mktemp("data") / "sar_sentinel1_vv.tif"
+    width, height = 10, 10
+    transform = from_origin(500000, 3000000, 10, 10)
+    crs = "EPSG:32643"
+    data = np.ones((1, height, width), dtype=np.float32) * 0.15
+    
+    with rasterio.open(
+        fn,
+        "w",
+        driver="GTiff",
+        height=height,
+        width=width,
+        count=1,
+        dtype=rasterio.float32,
+        crs=crs,
+        transform=transform,
+    ) as dst:
+        dst.write(data)
+        dst.update_tags(
+            POLARIZATION="VV",
+            SENSOR="SENTINEL-1",
+            TIFFTAG_DATETIME="2024:05:01 10:00:00",
+        )
+    return fn
+
+
+@pytest.fixture(scope="session")
 def valid_jpg_path(tmp_path_factory):
     """Generates a standard valid RGB JPEG image."""
     fn = tmp_path_factory.mktemp("data") / "sample_photo.jpg"
     img = Image.new("RGB", (64, 64), color=(73, 109, 137))
+    img.save(fn, format="JPEG")
+    return fn
+
+
+@pytest.fixture(scope="session")
+def valid_jpg_path_2(tmp_path_factory):
+    """Generates a second valid RGB JPEG image."""
+    fn = tmp_path_factory.mktemp("data") / "sample_photo_2.jpg"
+    img = Image.new("RGB", (64, 64), color=(200, 100, 50))
     img.save(fn, format="JPEG")
     return fn
 
@@ -59,7 +147,6 @@ def valid_png_path(tmp_path_factory):
 def invalid_geotiff_no_crs(tmp_path_factory):
     """Generates a TIFF lacking CRS (falls back to visual standard)."""
     fn = tmp_path_factory.mktemp("data") / "sample_no_crs.tif"
-    
     width, height = 10, 10
     band = np.ones((10, 10), dtype=np.uint8)
     
