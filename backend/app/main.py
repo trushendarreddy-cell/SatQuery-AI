@@ -1,5 +1,6 @@
-from fastapi import FastAPI
-from fastapi.middleware.cors import CORSMiddleware
+from fastapi import FastAPI  # pyright: ignore[reportMissingImports]
+from fastapi.middleware.cors import CORSMiddleware  # pyright: ignore[reportMissingImports]
+from fastapi.openapi.utils import get_openapi  # pyright: ignore[reportMissingImports]
 
 from app.core.config import settings
 from app.api.v1.router import api_router
@@ -23,6 +24,32 @@ app.add_middleware(
 
 # Include API v1 Router
 app.include_router(api_router, prefix=settings.API_V1_PREFIX)
+
+
+def custom_openapi():
+    """Custom OpenAPI schema generator ensuring Swagger UI displays file pickers for array-of-files."""
+    if app.openapi_schema:
+        return app.openapi_schema
+
+    openapi_schema = get_openapi(
+        title=app.title,
+        version=app.version,
+        description=app.description,
+        routes=app.routes,
+    )
+
+    # Ensure multipart array-of-files displays as binary file pickers in Swagger UI
+    for schema_name, schema in openapi_schema.get("components", {}).get("schemas", {}).items():
+        for prop_name, prop in schema.get("properties", {}).items():
+            if prop.get("type") == "array" and "items" in prop:
+                if "contentMediaType" in prop["items"] or prop_name in ["files", "images"]:
+                    prop["items"] = {"type": "string", "format": "binary"}
+
+    app.openapi_schema = openapi_schema
+    return app.openapi_schema
+
+
+app.openapi = custom_openapi
 
 
 @app.get("/", tags=["Health & Info"])

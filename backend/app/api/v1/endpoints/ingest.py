@@ -2,8 +2,8 @@ import shutil
 import uuid
 from pathlib import Path
 from typing import List, Optional
-from fastapi import APIRouter, File, UploadFile, Form, status
-from fastapi.responses import JSONResponse
+from fastapi import APIRouter, File, UploadFile, Form, status  # type: ignore[import-not-found]
+from starlette.responses import JSONResponse # pyright: ignore[reportMissingImports]
 
 from app.core.config import settings
 from app.core.session_cache import session_manager
@@ -41,11 +41,9 @@ async def inspect_image(file: UploadFile = File(...)):
     temp_file_path = settings.UPLOAD_DIR / safe_filename
 
     try:
-        # 1. Stream uploaded file to temporary disk location
         with open(temp_file_path, "wb") as buffer:
             shutil.copyfileobj(file.file, buffer)
 
-        # 2. Universal validation (routes to GeoTIFF or Visual pipeline)
         validation_result: ValidationResult = UniversalImageValidator.validate(temp_file_path)
 
         if not validation_result.is_valid:
@@ -59,7 +57,6 @@ async def inspect_image(file: UploadFile = File(...)):
                 ).model_dump(),
             )
 
-        # 3. Extract metadata according to validated category
         metadata = UniversalMetadataExtractor.extract(
             file_path=temp_file_path,
             category=validation_result.category,
@@ -97,7 +94,7 @@ async def inspect_image(file: UploadFile = File(...)):
     "/upload",
     response_model=SessionStateResponse,
     status_code=status.HTTP_200_OK,
-    summary="Upload 1 or more images into a session and classify scene configuration",
+    summary="Upload 1 or more images into a session (Multi-file array)",
     description=(
         "Uploads one or more images into an active or new session. "
         "Validates and registers each image, maintains individual metadata, "
@@ -123,13 +120,10 @@ async def upload_images_to_session(
             with open(temp_file_path, "wb") as buffer:
                 shutil.copyfileobj(file.file, buffer)
 
-            # Validate
             validation_result = UniversalImageValidator.validate(temp_file_path)
             if not validation_result.is_valid:
-                # If an image fails validation, we still report errors gracefully
                 continue
 
-            # Extract metadata
             metadata = UniversalMetadataExtractor.extract(
                 file_path=temp_file_path,
                 category=validation_result.category,
@@ -137,7 +131,6 @@ async def upload_images_to_session(
                 compute_stats=True,
             )
 
-            # Register in session
             session_manager.add_image(
                 session_id=active_session_id,
                 file_path=temp_file_path,
@@ -147,7 +140,68 @@ async def upload_images_to_session(
         finally:
             await file.close()
 
-    # Get all active images in this session and classify the relationship
+    session_images = session_manager.get_images(active_session_id)
+    classification = SceneClassifier.classify(session_images, active_session_id)
+
+    return SessionStateResponse(
+        session_id=active_session_id,
+        created_at=session.created_at.isoformat(),
+        updated_at=session.updated_at.isoformat(),
+        image_count=len(session_images),
+        classification=classification,
+    )
+
+
+@router.post(
+    "/upload-pair",
+    response_model=SessionStateResponse,
+    status_code=status.HTTP_200_OK,
+    summary="Upload an explicit pair of two images (Before & After / Multi-sensor) into a session",
+    description=(
+        "Convenient endpoint with two distinct file picker slots (Image 1 and Image 2) "
+        "designed specifically for comparing two temporal satellite scenes or multimodal pairs."
+    ),
+)
+async def upload_image_pair(
+    file_1: UploadFile = File(..., description="First image (Reference / Earlier scene / Optical)"),
+    file_2: UploadFile = File(..., description="Second image (Target / Later scene / SAR)"),
+    session_id: Optional[str] = Form(None, description="Optional existing session ID to append to"),
+):
+    """
+    Uploads exactly two images into a session with explicit file pickers in Swagger UI.
+    """
+    session = session_manager.get_or_create_session(session_id)
+    active_session_id = session.session_id
+
+    for file in [file_1, file_2]:
+        image_uuid = uuid.uuid4().hex[:8]
+        safe_filename = f"{image_uuid}_{file.filename}"
+        temp_file_path = session.session_dir / safe_filename
+
+        try:
+            with open(temp_file_path, "wb") as buffer:
+                shutil.copyfileobj(file.file, buffer)
+
+            validation_result = UniversalImageValidator.validate(temp_file_path)
+            if not validation_result.is_valid:
+                continue
+
+            metadata = UniversalMetadataExtractor.extract(
+                file_path=temp_file_path,
+                category=validation_result.category,
+                image_id=image_uuid,
+                compute_stats=True,
+            )
+
+            session_manager.add_image(
+                session_id=active_session_id,
+                file_path=temp_file_path,
+                metadata=metadata,
+            )
+
+        finally:
+            await file.close()
+
     session_images = session_manager.get_images(active_session_id)
     classification = SceneClassifier.classify(session_images, active_session_id)
 
