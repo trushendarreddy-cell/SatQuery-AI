@@ -3,12 +3,13 @@ import numpy as np
 from PIL import Image
 import rasterio
 from rasterio.transform import from_origin
+from rasterio.warp import transform_bounds
 from pathlib import Path
 
 
 @pytest.fixture(scope="session")
 def valid_geotiff_path(tmp_path_factory):
-    """Generates a small valid GeoTIFF with CRS, geotransform, and acquisition date tag."""
+    """Generates a small valid GeoTIFF with CRS, geotransform, and acquisition date tag (UTM 43N)."""
     fn = tmp_path_factory.mktemp("data") / "sample_valid.tif"
     
     width, height = 10, 10
@@ -39,7 +40,7 @@ def valid_geotiff_path(tmp_path_factory):
 
 @pytest.fixture(scope="session")
 def geotiff_date1_path(tmp_path_factory):
-    """Generates a 4-band optical GeoTIFF acquired on May 1, 2024."""
+    """Generates a 4-band optical GeoTIFF acquired on May 1, 2024 (UTM 43N)."""
     fn = tmp_path_factory.mktemp("data") / "scene_2024_05_01.tif"
     width, height = 10, 10
     transform = from_origin(500000, 3000000, 10, 10)
@@ -64,10 +65,11 @@ def geotiff_date1_path(tmp_path_factory):
 
 @pytest.fixture(scope="session")
 def geotiff_date2_path(tmp_path_factory):
-    """Generates a 4-band optical GeoTIFF acquired on Nov 1, 2024."""
+    """Generates a 4-band optical GeoTIFF acquired on Nov 1, 2024 with 50% spatial offset."""
     fn = tmp_path_factory.mktemp("data") / "scene_2024_11_01.tif"
     width, height = 10, 10
-    transform = from_origin(500000, 3000000, 10, 10)
+    # Shifted by 50m to test partial spatial overlap
+    transform = from_origin(500050, 3000050, 10, 10)
     crs = "EPSG:32643"
     data = np.ones((4, height, width), dtype=np.uint16) * 1500
     
@@ -84,6 +86,86 @@ def geotiff_date2_path(tmp_path_factory):
     ) as dst:
         dst.write(data)
         dst.update_tags(TIFFTAG_DATETIME="2024:11:01 10:00:00")
+    return fn
+
+
+@pytest.fixture(scope="session")
+def geotiff_diff_crs_path(tmp_path_factory, valid_geotiff_path):
+    """Generates a GeoTIFF covering the same region as valid_geotiff_path but defined in EPSG:4326."""
+    fn = tmp_path_factory.mktemp("data") / "scene_epsg4326.tif"
+    with rasterio.open(valid_geotiff_path) as ref:
+        wgs_bounds = transform_bounds(ref.crs, "EPSG:4326", *ref.bounds)
+        
+    min_lon, min_lat, max_lon, max_lat = wgs_bounds
+    width, height = 10, 10
+    res_x = (max_lon - min_lon) / width
+    res_y = (max_lat - min_lat) / height
+    transform = from_origin(min_lon, max_lat, res_x, res_y)
+    
+    data = np.ones((2, height, width), dtype=np.uint16) * 500
+    with rasterio.open(
+        fn,
+        "w",
+        driver="GTiff",
+        height=height,
+        width=width,
+        count=2,
+        dtype=rasterio.uint16,
+        crs="EPSG:4326",
+        transform=transform,
+    ) as dst:
+        dst.write(data)
+        dst.update_tags(TIFFTAG_DATETIME="2024:06:01 12:00:00")
+    return fn
+
+
+@pytest.fixture(scope="session")
+def geotiff_no_overlap_path(tmp_path_factory):
+    """Generates a GeoTIFF located in New York (UTM 18N), completely disjoint from India scenes."""
+    fn = tmp_path_factory.mktemp("data") / "scene_new_york.tif"
+    width, height = 10, 10
+    transform = from_origin(580000, 4500000, 10, 10)
+    crs = "EPSG:32618"
+    data = np.ones((2, height, width), dtype=np.uint16) * 800
+    
+    with rasterio.open(
+        fn,
+        "w",
+        driver="GTiff",
+        height=height,
+        width=width,
+        count=2,
+        dtype=rasterio.uint16,
+        crs=crs,
+        transform=transform,
+    ) as dst:
+        dst.write(data)
+        dst.update_tags(TIFFTAG_DATETIME="2024:05:01 10:00:00")
+    return fn
+
+
+@pytest.fixture(scope="session")
+def geotiff_30m_res_path(tmp_path_factory):
+    """Generates a GeoTIFF with 30m resolution covering same region."""
+    fn = tmp_path_factory.mktemp("data") / "scene_30m.tif"
+    width, height = 5, 5
+    transform = from_origin(500000, 3000000, 30, 30)  # 30m pixel size
+    crs = "EPSG:32643"
+    data = np.ones((2, height, width), dtype=np.uint16) * 1200
+    
+    with rasterio.open(
+        fn,
+        "w",
+        driver="GTiff",
+        height=height,
+        width=width,
+        count=2,
+        dtype=rasterio.uint16,
+        crs=crs,
+        transform=transform,
+    ) as dst:
+        dst.write(data)
+        dst.update_tags(TIFFTAG_DATETIME="2024:05:01 10:00:00")
     return fn
 
 
