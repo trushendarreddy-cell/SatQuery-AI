@@ -1,0 +1,41 @@
+# Python bytecode and cache
+__pycache__/
+*.py[cod]
+*$py.class
+.pytest_cache/
+.coverage
+htmlcov/
+
+# Virtual Environment
+venv/
+.venv/
+env/
+ENV/
+
+# Temporary and Cache Directories
+temp/
+backend/temp/
+cache/
+*.tmp
+
+# Environment Variables and Secrets
+.env
+.env.*
+!.env.example
+
+# Large Data & Test Outputs (Preserve repository lightness)
+*.tif
+*.tiff
+*.COG
+*.cog
+*.nc
+*.hdf
+*.h5
+*.tar.gz
+*.zip
+
+# IDE and OS files
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
