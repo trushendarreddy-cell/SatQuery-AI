@@ -247,6 +247,94 @@ def invalid_geotiff_no_crs(tmp_path_factory):
 
 
 @pytest.fixture(scope="session")
+def geotiff_no_date_path(tmp_path_factory):
+    """Georeferenced GeoTIFF with no acquisition timestamp tags."""
+    fn = tmp_path_factory.mktemp("data") / "scene_no_date.tif"
+    transform = from_origin(500000, 3000000, 10, 10)
+    data = np.ones((2, 10, 10), dtype=np.uint16) * 400
+    with rasterio.open(
+        fn, "w", driver="GTiff", height=10, width=10, count=2,
+        dtype=rasterio.uint16, crs="EPSG:32643", transform=transform, nodata=0,
+    ) as dst:
+        dst.write(data)
+    return fn
+
+
+@pytest.fixture(scope="session")
+def geotiff_scl_path(tmp_path_factory):
+    """Optical scene plus Sentinel-2 SCL band (3=shadow, 8=cloud, 4=vegetation)."""
+    fn = tmp_path_factory.mktemp("data") / "scene_with_scl.tif"
+    transform = from_origin(500000, 3000000, 10, 10)
+    optical = np.ones((3, 10, 10), dtype=np.uint16) * 800
+    scl = np.full((10, 10), 4, dtype=np.uint8)
+    scl[0:2, 0:5] = 8
+    scl[8:10, 8:10] = 3
+    with rasterio.open(
+        fn, "w", driver="GTiff", height=10, width=10, count=4,
+        dtype=rasterio.uint16, crs="EPSG:32643", transform=transform, nodata=0,
+    ) as dst:
+        dst.write(optical[0], 1)
+        dst.write(optical[1], 2)
+        dst.write(optical[2], 3)
+        dst.write(scl.astype(np.uint16), 4)
+        dst.set_band_description(1, "B2")
+        dst.set_band_description(2, "B3")
+        dst.set_band_description(3, "B4")
+        dst.set_band_description(4, "SCL")
+        dst.update_tags(TIFFTAG_DATETIME="2024:05:01 10:00:00")
+    return fn
+
+
+@pytest.fixture(scope="session")
+def geotiff_qa_pixel_path(tmp_path_factory):
+    """Single-band Landsat-style QA_PIXEL with cloud (bit 3) and shadow (bit 4)."""
+    fn = tmp_path_factory.mktemp("data") / "qa_pixel.tif"
+    transform = from_origin(500000, 3000000, 10, 10)
+    qa = np.zeros((10, 10), dtype=np.uint16)
+    qa[0:3, 0:3] = np.uint16(1 << 3)
+    qa[5:7, 5:7] = np.uint16(1 << 4)
+    with rasterio.open(
+        fn, "w", driver="GTiff", height=10, width=10, count=1,
+        dtype=rasterio.uint16, crs="EPSG:32643", transform=transform,
+    ) as dst:
+        dst.write(qa, 1)
+        dst.set_band_description(1, "QA_PIXEL")
+    return fn
+
+
+@pytest.fixture(scope="session")
+def geotiff_binary_mask_path(tmp_path_factory):
+    """Binary mask with a 4x4 block of valid pixels (1) and the rest 0."""
+    fn = tmp_path_factory.mktemp("data") / "binary_mask.tif"
+    transform = from_origin(500000, 3000000, 10, 10)
+    mask = np.zeros((10, 10), dtype=np.uint8)
+    mask[0:4, 0:4] = 1
+    with rasterio.open(
+        fn, "w", driver="GTiff", height=10, width=10, count=1,
+        dtype=rasterio.uint8, crs="EPSG:32643", transform=transform, nodata=255,
+    ) as dst:
+        dst.write(mask, 1)
+        dst.set_band_description(1, "change_mask")
+        dst.update_tags(MASK_TYPE="binary")
+    return fn
+
+
+@pytest.fixture(scope="session")
+def geotiff_empty_mask_path(tmp_path_factory):
+    """Georeferenced mask with no valid pixels."""
+    fn = tmp_path_factory.mktemp("data") / "empty_mask.tif"
+    transform = from_origin(500000, 3000000, 10, 10)
+    mask = np.zeros((10, 10), dtype=np.uint8)
+    with rasterio.open(
+        fn, "w", driver="GTiff", height=10, width=10, count=1,
+        dtype=rasterio.uint8, crs="EPSG:32643", transform=transform, nodata=255,
+    ) as dst:
+        dst.write(mask, 1)
+        dst.set_band_description(1, "change_mask")
+    return fn
+
+
+@pytest.fixture(scope="session")
 def corrupted_file_path(tmp_path_factory):
     """Generates a corrupted binary non-image file."""
     fn = tmp_path_factory.mktemp("data") / "corrupted.jpg"

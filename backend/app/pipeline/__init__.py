@@ -1,1 +1,1 @@
-"""Data pipeline modules: validation, metadata, alignment, overlap, compatibility, and clipping."""
+"""Data pipeline modules: validation, metadata, spatial tools, and raster analysis."""

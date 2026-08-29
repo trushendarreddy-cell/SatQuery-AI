@@ -1,5 +1,5 @@
 from fastapi import APIRouter
-from app.api.v1.endpoints import ingest, session, spatial
+from app.api.v1.endpoints import ingest, session, spatial, analysis
 
 api_router = APIRouter()
 
@@ -11,3 +11,6 @@ api_router.include_router(session.router, prefix="/session", tags=["Session & Sc
 
 # Geospatial spatial processing routes (overlap, alignment, compatibility, clip)
 api_router.include_router(spatial.router, prefix="/spatial", tags=["Geospatial Alignment & Compatibility"])
+
+# Raster analysis, vectorization, and zonal statistics
+api_router.include_router(analysis.router, prefix="/analysis", tags=["Geospatial Analysis"])
