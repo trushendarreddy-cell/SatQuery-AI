@@ -5,6 +5,7 @@ import numpy as np
 import rasterio
 from rasterio.warp import reproject, Resampling
 from rasterio.errors import RasterioIOError
+from pyproj import Geod
 
 from app.core.session_cache import session_manager
 from app.pipeline.clip import clip_to_common_extent
@@ -15,6 +16,8 @@ from app.schemas.change_detection_schema import (
     ChangeDetectionRequest,
     ChangeDetectionResult,
 )
+
+_GEOD = Geod(ellps="WGS84")
 
 
 _RESAMPLING_MAP = {
@@ -50,6 +53,7 @@ def _failed_result(
         crs="",
         transform=[0, 1, 0, 0, 0, 1],
         changed_pixel_count=0,
+        unchanged_pixel_count=0,
         valid_pixel_count=0,
         change_percentage=0.0,
         min_change=0.0,
@@ -57,6 +61,8 @@ def _failed_result(
         mean_change=0.0,
         threshold_used=threshold,
         threshold_method=method,
+        intersection_bounds_wgs84=None,
+        changed_area_sqkm=None,
         message=message,
         messages=[],
         warnings=warnings or [],
@@ -196,7 +202,11 @@ def run_change_detection(
                 range2 = np.nanmax(arr2[valid_mask]) - np.nanmin(arr2[valid_mask])
                 denom = max(range1, range2)
                 if denom == 0:
-                    relative_diff = np.zeros_like(diff)
+                    max_val = max(np.nanmax(arr1[valid_mask]), np.nanmax(arr2[valid_mask]))
+                    if max_val == 0:
+                        relative_diff = np.zeros_like(diff)
+                    else:
+                        relative_diff = diff / max_val
                 else:
                     relative_diff = diff / denom
                 change_mask = (relative_diff >= threshold) & valid_mask
@@ -206,6 +216,7 @@ def run_change_detection(
                 change_magnitudes = diff[valid_mask]
 
             changed_pixels = int(change_mask.sum())
+            unchanged_pixels = int(valid_pixels - changed_pixels)
             change_percentage = (changed_pixels / valid_pixels) * 100.0 if valid_pixels > 0 else 0.0
 
             min_change = float(np.min(change_magnitudes)) if change_magnitudes.size > 0 else 0.0
@@ -250,6 +261,23 @@ def run_change_detection(
                 float(ref_ds.transform.f),
             ]
 
+            intersection_bounds = clip_result.intersection_bounds_wgs84
+            changed_area_sqkm = None
+            if intersection_bounds and changed_pixels > 0:
+                try:
+                    poly = [
+                        [intersection_bounds["min_lon"], intersection_bounds["min_lat"]],
+                        [intersection_bounds["max_lon"], intersection_bounds["min_lat"]],
+                        [intersection_bounds["max_lon"], intersection_bounds["max_lat"]],
+                        [intersection_bounds["min_lon"], intersection_bounds["max_lat"]],
+                        [intersection_bounds["min_lon"], intersection_bounds["min_lat"]],
+                    ]
+                    area_m2, _ = _GEOD.polygon_area_perimeter(poly, lonlat=True)
+                    total_area_m2 = abs(area_m2)
+                    changed_area_sqkm = round((total_area_m2 * (changed_pixels / valid_pixels)) / 1_000_000.0, 8) if valid_pixels > 0 else 0.0
+                except Exception:
+                    changed_area_sqkm = None
+
             return ChangeDetectionResult(
                 success=True,
                 session_id=session_id,
@@ -264,6 +292,7 @@ def run_change_detection(
                 crs=clip_result.target_crs,
                 transform=transform_list,
                 changed_pixel_count=changed_pixels,
+                unchanged_pixel_count=unchanged_pixels,
                 valid_pixel_count=valid_pixels,
                 change_percentage=round(change_percentage, 4),
                 min_change=round(min_change, 6),
@@ -271,7 +300,9 @@ def run_change_detection(
                 mean_change=round(mean_change, 6),
                 threshold_used=threshold,
                 threshold_method=method,
-                message=f"Change detection completed. {changed_pixels} of {valid_pixels} valid pixels changed ({change_percentage:.2f}%).",
+                intersection_bounds_wgs84=intersection_bounds,
+                changed_area_sqkm=changed_area_sqkm,
+                message=f"PIXEL/SPECTRAL CHANGE DETECTION completed. {changed_pixels} of {valid_pixels} valid pixels changed ({change_percentage:.2f}%). This describes spectral/pixel change only; no land-cover class or real-world object change is inferred.",
                 messages=[
                     f"Both scenes aligned to a {clip_result.width}x{clip_result.height} grid.",
                     f"Threshold method: {method}, threshold: {threshold}.",

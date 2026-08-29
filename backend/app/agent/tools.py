@@ -18,6 +18,7 @@ from app.pipeline.analysis import (
     calculate_spatial_area,
     calculate_spatial_statistics,
 )
+from app.pipeline.change_detection import run_change_detection
 from app.schemas.metadata_schema import ImageCategory
 
 
@@ -129,6 +130,22 @@ def compute_spectral_index_tool(session_id: str, image_id: str, index_type: str 
     return {"success": result.success, "session_id": session_id, "message": result.message, "spectral_index": result.model_dump(), "warnings": result.warnings}
 
 
+def run_change_detection_tool(session_id: str, image_id_1: str, image_id_2: str, threshold: float = 0.1, threshold_method: str = "relative_normalized", band_index: Optional[int] = None, resampling_method: str = "bilinear") -> Dict[str, Any]:
+    from app.schemas.change_detection_schema import ChangeDetectionRequest, ChangeDetectionMethod
+    method = ChangeDetectionMethod(threshold_method.lower())
+    payload = ChangeDetectionRequest(
+        session_id=session_id,
+        image_id_1=image_id_1,
+        image_id_2=image_id_2,
+        threshold=threshold,
+        threshold_method=method,
+        band_index=band_index,
+        resampling_method=resampling_method,
+    )
+    result = run_change_detection(payload)
+    return {"success": result.success, "session_id": session_id, "message": result.message, "change_detection": result.model_dump(), "warnings": result.warnings}
+
+
 def invoke_agent_tool(payload: AgentToolCall) -> AgentToolResult:
     name = payload.tool_name
     args = dict(payload.arguments)
@@ -146,6 +163,7 @@ def invoke_agent_tool(payload: AgentToolCall) -> AgentToolResult:
         "calculate_spatial_statistics": lambda: calculate_spatial_statistics_tool(args.get("session_id", ""), args.get("image_id", ""), args.get("mask_image_id"), args.get("geometry"), args.get("band_index")),
         "calculate_area": lambda: calculate_area_tool(args.get("geojson", {})),
         "compute_spectral_index": lambda: compute_spectral_index_tool(args.get("session_id", ""), args.get("image_id", ""), args.get("index_type", "ndvi"), int(args.get("red_band", 3)), int(args.get("nir_band", 4))),
+        "run_change_detection": lambda: run_change_detection_tool(args.get("session_id", ""), args.get("image_id_1", ""), args.get("image_id_2", ""), float(args.get("threshold", 0.1)), args.get("threshold_method", "relative_normalized"), args.get("band_index"), args.get("resampling_method", "bilinear")),
     }
     func = tool_map.get(name)
     if not func:
@@ -533,4 +551,36 @@ _register(
     },
     required=["session_id", "image_id"],
     failures=["Session not found", "Image missing", "Missing geospatial metadata", "Band index out of range", "CRS/grid mismatch"],
+)
+
+_register(
+    name="run_change_detection",
+    description="Detects pixel/spectral change between two georeferenced scenes on a common grid.",
+    purpose="Produces a georeferenced binary change-mask raster and quantitative statistics. Does not infer land-cover classes or real-world object changes.",
+    input_schema={
+        "type": "object",
+        "properties": {
+            "session_id": {"type": "string", "description": "Active session identifier"},
+            "image_id_1": {"type": "string", "description": "First georeferenced image identifier"},
+            "image_id_2": {"type": "string", "description": "Second georeferenced image identifier"},
+            "threshold": {"type": "number", "description": "Change detection threshold"},
+            "threshold_method": {"type": "string", "description": "absolute_difference or relative_normalized"},
+            "band_index": {"type": "integer", "description": "Optional 1-based band index"},
+            "resampling_method": {"type": "string", "description": "Resampling algorithm for alignment"},
+        },
+        "required": ["session_id", "image_id_1", "image_id_2"],
+    },
+    output_schema={
+        "type": "object",
+        "properties": {
+            "success": {"type": "boolean"},
+            "session_id": {"type": "string"},
+            "message": {"type": "string"},
+            "change_detection": {"type": "object"},
+            "warnings": {"type": "array", "items": {"type": "string"}},
+        },
+        "required": ["success", "session_id", "message"],
+    },
+    required=["session_id", "image_id_1", "image_id_2"],
+    failures=["Session not found", "Image missing", "Missing geospatial metadata", "No spatial overlap", "No valid pixels", "CRS/grid mismatch"],
 )

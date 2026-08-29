@@ -58,7 +58,7 @@ def test_api_change_detection_rejects_png(valid_png_path, valid_jpg_path):
 
 
 def test_api_change_detection_basic(geotiff_date1_path, geotiff_date2_path):
-    """Test POST /api/v1/analysis/change-detection with identical scenes."""
+    """Test POST /api/v1/analysis/change-detection with changed scenes."""
     sid, img_ids = _upload_test_pair(geotiff_date1_path, geotiff_date2_path)
 
     res = client.post(
@@ -80,9 +80,12 @@ def test_api_change_detection_basic(geotiff_date1_path, geotiff_date2_path):
     assert data["width"] == 5
     assert data["height"] == 5
     assert "changed_pixel_count" in data
+    assert "unchanged_pixel_count" in data
     assert "valid_pixel_count" in data
     assert "change_percentage" in data
+    assert "intersection_bounds_wgs84" in data
     assert data["threshold_method"] == "relative_normalized"
+    assert "PIXEL/SPECTRAL CHANGE" in data["message"]
 
 
 def test_api_change_detection_absolute_threshold(geotiff_date1_path, geotiff_date2_path):
@@ -141,3 +144,95 @@ def test_api_change_detection_missing_session():
     data = res.json()
     assert data["success"] is False
     assert "session" in data["message"].lower()
+
+
+def test_api_change_detection_crs_mismatch(tmp_path):
+    """Test POST /api/v1/analysis/change-detection rejects CRS mismatch via API."""
+    import rasterio
+    from rasterio.transform import from_origin
+    import numpy as np
+
+    p1 = tmp_path / "api_crs_a.tif"
+    p2 = tmp_path / "api_crs_b.tif"
+    arr = np.ones((10, 10), dtype=np.uint16) * 100
+    with rasterio.open(p1, "w", driver="GTiff", height=10, width=10, count=1,
+                       dtype=rasterio.uint16, crs="EPSG:32643",
+                       transform=from_origin(500000, 3000000, 10, 10)) as dst:
+        dst.write(arr, 1)
+    with rasterio.open(p2, "w", driver="GTiff", height=10, width=10, count=1,
+                       dtype=rasterio.uint16, crs="EPSG:4326",
+                       transform=from_origin(0, 0, 0.001, 0.001)) as dst:
+        dst.write(arr, 1)
+
+    with open(p1, "rb") as f1, open(p2, "rb") as f2:
+        res = client.post(
+            "/api/v1/ingest/upload",
+            files=[
+                ("files", ("a.tif", f1, "image/tiff")),
+                ("files", ("b.tif", f2, "image/tiff")),
+            ],
+        )
+    assert res.status_code == 200
+    sid = res.json()["session_id"]
+    img_ids = res.json()["classification"]["image_ids"]
+
+    res = client.post(
+        "/api/v1/analysis/change-detection",
+        json={
+            "session_id": sid,
+            "image_id_1": img_ids[0],
+            "image_id_2": img_ids[1],
+            "threshold": 0.1,
+            "threshold_method": "relative_normalized",
+        },
+    )
+    assert res.status_code == 200
+    data = res.json()
+    assert data["success"] is False
+
+
+def test_api_change_detection_preserves_crs_transform(tmp_path):
+    """Test POST /api/v1/analysis/change-detection preserves CRS and transform."""
+    import rasterio
+    from rasterio.transform import from_origin
+    import numpy as np
+
+    p1 = tmp_path / "api_preserve_a.tif"
+    p2 = tmp_path / "api_preserve_b.tif"
+    arr = np.ones((10, 10), dtype=np.uint16) * 100
+    crs = "EPSG:32643"
+    transform = from_origin(500000, 3000000, 10, 10)
+    with rasterio.open(p1, "w", driver="GTiff", height=10, width=10, count=1,
+                       dtype=rasterio.uint16, crs=crs, transform=transform) as dst:
+        dst.write(arr, 1)
+    with rasterio.open(p2, "w", driver="GTiff", height=10, width=10, count=1,
+                       dtype=rasterio.uint16, crs=crs, transform=transform) as dst:
+        dst.write(arr, 1)
+
+    with open(p1, "rb") as f1, open(p2, "rb") as f2:
+        res = client.post(
+            "/api/v1/ingest/upload",
+            files=[
+                ("files", ("a.tif", f1, "image/tiff")),
+                ("files", ("b.tif", f2, "image/tiff")),
+            ],
+        )
+    assert res.status_code == 200
+    sid = res.json()["session_id"]
+    img_ids = res.json()["classification"]["image_ids"]
+
+    res = client.post(
+        "/api/v1/analysis/change-detection",
+        json={
+            "session_id": sid,
+            "image_id_1": img_ids[0],
+            "image_id_2": img_ids[1],
+            "threshold": 0.1,
+            "threshold_method": "relative_normalized",
+        },
+    )
+    assert res.status_code == 200
+    data = res.json()
+    assert data["success"] is True
+    assert data["crs"] == crs
+    assert len(data["transform"]) == 6
