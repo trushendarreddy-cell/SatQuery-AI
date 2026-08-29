@@ -11,6 +11,7 @@ from app.pipeline.compatibility import check_compatibility
 from app.pipeline.alignment import align_images
 from app.pipeline.clip import clip_to_common_extent
 from app.pipeline.analysis import (
+    compute_spectral_index,
     detect_clouds_and_shadows,
     filter_seasonal_false_positives,
     mask_to_geojson,
@@ -121,6 +122,13 @@ def calculate_area_tool(geojson: Dict[str, Any]) -> Dict[str, Any]:
     return {"success": result.success, "message": result.message, "area": result.model_dump(), "warnings": result.warnings}
 
 
+def compute_spectral_index_tool(session_id: str, image_id: str, index_type: str = "ndvi", red_band: int = 3, nir_band: int = 4) -> Dict[str, Any]:
+    from app.schemas.analysis_schema import SpectralIndexType
+    itype = SpectralIndexType(index_type.lower())
+    result = compute_spectral_index(session_id, image_id, itype, red_band, nir_band)
+    return {"success": result.success, "session_id": session_id, "message": result.message, "spectral_index": result.model_dump(), "warnings": result.warnings}
+
+
 def invoke_agent_tool(payload: AgentToolCall) -> AgentToolResult:
     name = payload.tool_name
     args = dict(payload.arguments)
@@ -137,6 +145,7 @@ def invoke_agent_tool(payload: AgentToolCall) -> AgentToolResult:
         "mask_to_geojson": lambda: mask_to_geojson_tool(args.get("session_id", ""), args.get("image_id", ""), int(args.get("band_index", 1)), float(args.get("min_value", 1.0))),
         "calculate_spatial_statistics": lambda: calculate_spatial_statistics_tool(args.get("session_id", ""), args.get("image_id", ""), args.get("mask_image_id"), args.get("geometry"), args.get("band_index")),
         "calculate_area": lambda: calculate_area_tool(args.get("geojson", {})),
+        "compute_spectral_index": lambda: compute_spectral_index_tool(args.get("session_id", ""), args.get("image_id", ""), args.get("index_type", "ndvi"), int(args.get("red_band", 3)), int(args.get("nir_band", 4))),
     }
     func = tool_map.get(name)
     if not func:
@@ -494,4 +503,34 @@ _register(
     },
     required=["geojson"],
     failures=["Invalid GeoJSON", "No polygon geometries found"],
+)
+
+_register(
+    name="compute_spectral_index",
+    description="Computes a spectral index raster (e.g., NDVI) from a multispectral GeoTIFF.",
+    purpose="Produces a georeferenced index raster and quantitative statistics for a single image. Band mapping is explicit and does not guess spectral identities.",
+    input_schema={
+        "type": "object",
+        "properties": {
+            "session_id": {"type": "string", "description": "Active session identifier"},
+            "image_id": {"type": "string", "description": "Multispectral GeoTIFF identifier"},
+            "index_type": {"type": "string", "description": "Index to compute (currently ndvi)"},
+            "red_band": {"type": "integer", "description": "1-based red band index"},
+            "nir_band": {"type": "integer", "description": "1-based NIR band index"},
+        },
+        "required": ["session_id", "image_id"],
+    },
+    output_schema={
+        "type": "object",
+        "properties": {
+            "success": {"type": "boolean"},
+            "session_id": {"type": "string"},
+            "message": {"type": "string"},
+            "spectral_index": {"type": "object"},
+            "warnings": {"type": "array", "items": {"type": "string"}},
+        },
+        "required": ["success", "session_id", "message"],
+    },
+    required=["session_id", "image_id"],
+    failures=["Session not found", "Image missing", "Missing geospatial metadata", "Band index out of range", "CRS/grid mismatch"],
 )

@@ -134,3 +134,40 @@ class ZonalStatsResult(BaseModel):
     message: str
     messages: List[str] = Field(default_factory=list)
     warnings: List[str] = Field(default_factory=list)
+
+
+class SpectralIndexType(str, Enum):
+    NDVI = "ndvi"
+
+
+class SpectralIndexRequest(BaseModel):
+    session_id: str = Field(..., description="Active session ID")
+    image_id: str = Field(..., description="Multispectral GeoTIFF to process")
+    index_type: SpectralIndexType = Field(SpectralIndexType.NDVI, description="Spectral index to compute")
+    red_band: int = Field(3, description="1-based red band index")
+    nir_band: int = Field(4, description="1-based NIR band index")
+
+
+class SpectralIndexResult(BaseModel):
+    success: bool = Field(..., description="True if the index raster was produced")
+    session_id: str = Field(..., description="Active session ID")
+    image_id: str = Field(..., description="Source image ID")
+    index_type: str = Field(..., description="Index computed (e.g., ndvi)")
+    index_image_id: str = Field(..., description="Registered index raster ID")
+    artifact_filename: str = Field(..., description="Index raster GeoTIFF filename")
+    width: int = Field(..., description="Pixel columns")
+    height: int = Field(..., description="Pixel rows")
+    band_count: int = Field(1, description="Number of bands in index raster")
+    crs: str = Field(..., description="CRS of the index raster")
+    transform: List[float] = Field(..., description="Affine transform coefficients [c, a, b, d, e, f]")
+    red_band: int = Field(..., description="Red band index used")
+    nir_band: int = Field(..., description="NIR band index used")
+    valid_pixel_count: int = Field(..., description="Pixels with valid spectral data")
+    nodata_pixel_count: int = Field(..., description="Pixels excluded as NoData")
+    min_value: Optional[float] = Field(None, description="Minimum index value")
+    max_value: Optional[float] = Field(None, description="Maximum index value")
+    mean_value: Optional[float] = Field(None, description="Mean index value")
+    message: str = Field(..., description="Status summary")
+    messages: List[str] = Field(default_factory=list)
+    warnings: List[str] = Field(default_factory=list)
+    index_metadata: Optional[UnifiedImageMetadata] = Field(None, description="Metadata of the generated index raster")

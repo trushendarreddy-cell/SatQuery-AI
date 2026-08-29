@@ -9,12 +9,15 @@ from app.schemas.analysis_schema import (
     MaskToGeoJSONResult,
     SeasonalFilterRequest,
     SeasonalFilterResult,
+    SpectralIndexRequest,
+    SpectralIndexResult,
     ZonalStatsRequest,
     ZonalStatsResult,
 )
 from app.pipeline.analysis import (
     calculate_spatial_area,
     calculate_spatial_statistics,
+    compute_spectral_index,
     detect_clouds_and_shadows,
     filter_seasonal_false_positives,
     mask_to_geojson,
@@ -61,4 +64,15 @@ async def api_zonal_stats(payload: ZonalStatsRequest):
         payload.mask_image_id,
         payload.geometry,
         payload.band_index,
+    )
+
+
+@router.post("/spectral-index", response_model=SpectralIndexResult, status_code=status.HTTP_200_OK)
+async def api_spectral_index(payload: SpectralIndexRequest):
+    return compute_spectral_index(
+        session_id=payload.session_id,
+        image_id=payload.image_id,
+        index_type=payload.index_type,
+        red_band=payload.red_band,
+        nir_band=payload.nir_band,
     )

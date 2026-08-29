@@ -9,6 +9,7 @@ from app.geospatial.cloud_mask import classify_cloud_shadow, write_class_mask
 from app.geospatial.seasonal import evaluate_seasonal_risk
 from app.geospatial.vectorize import polygonize_mask_file
 from app.geospatial.zonal import compute_zonal_statistics
+from app.geospatial.spectral_index import compute_ndvi
 from app.pipeline.metadata import UniversalMetadataExtractor
 from app.schemas.analysis_schema import (
     AreaResult,
@@ -17,6 +18,8 @@ from app.schemas.analysis_schema import (
     MaskToGeoJSONResult,
     SeasonalFilterResult,
     SeasonalRisk,
+    SpectralIndexResult,
+    SpectralIndexType,
     ZonalBandStats,
     ZonalStatsResult,
 )
@@ -374,5 +377,237 @@ def calculate_spatial_statistics(
             image_id=image_id,
             mask_image_id=mask_image_id,
             message=f"Zonal statistics failed: {str(exc)}",
+            warnings=[str(exc)],
+        )
+
+
+def compute_spectral_index(
+    session_id: str,
+    image_id: str,
+    index_type: SpectralIndexType = SpectralIndexType.NDVI,
+    red_band: int = 3,
+    nir_band: int = 4,
+) -> SpectralIndexResult:
+    """
+    Computes a spectral index raster from a single multispectral GeoTIFF.
+
+    Currently supports NDVI = (NIR - Red) / (NIR + Red).
+
+    Band mapping is explicit: red_band and nir_band are 1-based indices supplied
+    by the caller because the existing metadata model does not reliably identify
+    spectral band identities from GeoTIFF tags alone.
+    """
+    session, meta, path, err = _session_image(session_id, image_id)
+    if err or meta is None or path is None:
+        return SpectralIndexResult(
+            success=False,
+            session_id=session_id,
+            image_id=image_id,
+            index_type=index_type.value,
+            index_image_id="",
+            artifact_filename="",
+            width=0,
+            height=0,
+            band_count=1,
+            crs="",
+            transform=[0, 1, 0, 0, 0, 1],
+            red_band=red_band,
+            nir_band=nir_band,
+            valid_pixel_count=0,
+            nodata_pixel_count=0,
+            min_value=None,
+            max_value=None,
+            mean_value=None,
+            message=err or "Unable to load image.",
+            warnings=[err] if err else [],
+        )
+
+    if not meta.has_geospatial_metadata or not meta.geospatial:
+        return SpectralIndexResult(
+            success=False,
+            session_id=session_id,
+            image_id=image_id,
+            index_type=index_type.value,
+            index_image_id="",
+            artifact_filename="",
+            width=0,
+            height=0,
+            band_count=1,
+            crs="",
+            transform=[0, 1, 0, 0, 0, 1],
+            red_band=red_band,
+            nir_band=nir_band,
+            valid_pixel_count=0,
+            nodata_pixel_count=0,
+            min_value=None,
+            max_value=None,
+            mean_value=None,
+            message="Spectral index requires a georeferenced raster. Visual images are not used.",
+            warnings=["Image lacks geospatial metadata. No spectral index was fabricated."],
+        )
+
+    if index_type != SpectralIndexType.NDVI:
+        return SpectralIndexResult(
+            success=False,
+            session_id=session_id,
+            image_id=image_id,
+            index_type=index_type.value,
+            index_image_id="",
+            artifact_filename="",
+            width=0,
+            height=0,
+            band_count=1,
+            crs="",
+            transform=[0, 1, 0, 0, 0, 1],
+            red_band=red_band,
+            nir_band=nir_band,
+            valid_pixel_count=0,
+            nodata_pixel_count=0,
+            min_value=None,
+            max_value=None,
+            mean_value=None,
+            message=f"Spectral index '{index_type.value}' is not implemented.",
+            warnings=[f"Index type '{index_type.value}' is not supported."],
+        )
+
+    try:
+        with rasterio.open(path) as src:
+            if not src.crs:
+                return SpectralIndexResult(
+                    success=False,
+                    session_id=session_id,
+                    image_id=image_id,
+                    index_type=index_type.value,
+                    index_image_id="",
+                    artifact_filename="",
+                    width=0,
+                    height=0,
+                    band_count=1,
+                    crs="",
+                    transform=[0, 1, 0, 0, 0, 1],
+                    red_band=red_band,
+                    nir_band=nir_band,
+                    valid_pixel_count=0,
+                    nodata_pixel_count=0,
+                    min_value=None,
+                    max_value=None,
+                    mean_value=None,
+                    message="Raster has no CRS. Spectral index was not computed.",
+                    warnings=["CRS is missing; no index raster was invented."],
+                )
+            if red_band < 1 or red_band > src.count:
+                return SpectralIndexResult(
+                    success=False,
+                    session_id=session_id,
+                    image_id=image_id,
+                    index_type=index_type.value,
+                    index_image_id="",
+                    artifact_filename="",
+                    width=0,
+                    height=0,
+                    band_count=1,
+                    crs=src.crs.to_string() if src.crs else "",
+                    transform=[float(src.transform.c), float(src.transform.a), float(src.transform.b),
+                               float(src.transform.d), float(src.transform.e), float(src.transform.f)],
+                    red_band=red_band,
+                    nir_band=nir_band,
+                    valid_pixel_count=0,
+                    nodata_pixel_count=0,
+                    min_value=None,
+                    max_value=None,
+                    mean_value=None,
+                    message=f"Red band {red_band} does not exist; raster has {src.count} bands.",
+                    warnings=[f"Requested red band {red_band} is out of range."],
+                )
+            if nir_band < 1 or nir_band > src.count:
+                return SpectralIndexResult(
+                    success=False,
+                    session_id=session_id,
+                    image_id=image_id,
+                    index_type=index_type.value,
+                    index_image_id="",
+                    artifact_filename="",
+                    width=0,
+                    height=0,
+                    band_count=1,
+                    crs=src.crs.to_string() if src.crs else "",
+                    transform=[float(src.transform.c), float(src.transform.a), float(src.transform.b),
+                               float(src.transform.d), float(src.transform.e), float(src.transform.f)],
+                    red_band=red_band,
+                    nir_band=nir_band,
+                    valid_pixel_count=0,
+                    nodata_pixel_count=0,
+                    min_value=None,
+                    max_value=None,
+                    mean_value=None,
+                    message=f"NIR band {nir_band} does not exist; raster has {src.count} bands.",
+                    warnings=[f"Requested NIR band {nir_band} is out of range."],
+                )
+
+        index_uuid = uuid.uuid4().hex[:8]
+        index_filename = f"ndvi_{image_id}_{index_uuid}.tif"
+        index_path = session.session_dir / index_filename
+
+        result = compute_ndvi(
+            red_path=path,
+            nir_path=path,
+            output_path=index_path,
+            red_band=red_band,
+            nir_band=nir_band,
+        )
+
+        index_meta = UniversalMetadataExtractor.extract(
+            file_path=index_path,
+            category=ImageCategory.GEOSPATIAL_GEOTIFF,
+            image_id=index_uuid,
+            compute_stats=False,
+        )
+        session_manager.add_image(session_id, index_path, index_meta)
+
+        return SpectralIndexResult(
+            success=True,
+            session_id=session_id,
+            image_id=image_id,
+            index_type=index_type.value,
+            index_image_id=index_uuid,
+            artifact_filename=index_filename,
+            width=result["width"],
+            height=result["height"],
+            band_count=1,
+            crs=result["crs"],
+            transform=result["transform"],
+            red_band=result["red_band"],
+            nir_band=result["nir_band"],
+            valid_pixel_count=result["valid_pixel_count"],
+            nodata_pixel_count=result["nodata_pixel_count"],
+            min_value=result["min_value"],
+            max_value=result["max_value"],
+            mean_value=result["mean_value"],
+            message=result["message"],
+            messages=[f"NDVI raster written to '{index_filename}'."],
+            warnings=[],
+            index_metadata=index_meta,
+        )
+    except Exception as exc:
+        return SpectralIndexResult(
+            success=False,
+            session_id=session_id,
+            image_id=image_id,
+            index_type=index_type.value,
+            index_image_id="",
+            artifact_filename="",
+            width=0,
+            height=0,
+            band_count=1,
+            crs="",
+            transform=[0, 1, 0, 0, 0, 1],
+            red_band=red_band,
+            nir_band=nir_band,
+            valid_pixel_count=0,
+            nodata_pixel_count=0,
+            min_value=None,
+            max_value=None,
+            mean_value=None,
+            message=f"Spectral index computation failed: {str(exc)}",
             warnings=[str(exc)],
         )
