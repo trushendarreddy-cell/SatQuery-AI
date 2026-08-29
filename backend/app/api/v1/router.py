@@ -1,5 +1,5 @@
 from fastapi import APIRouter
-from app.api.v1.endpoints import ingest, session, spatial, analysis, query
+from app.api.v1.endpoints import ingest, session, spatial, analysis, change_detection, query
 
 api_router = APIRouter()
 
@@ -12,8 +12,9 @@ api_router.include_router(session.router, prefix="/session", tags=["Session & Sc
 # Geospatial spatial processing routes (overlap, alignment, compatibility, clip)
 api_router.include_router(spatial.router, prefix="/spatial", tags=["Geospatial Alignment & Compatibility"])
 
-# Raster analysis, vectorization, and zonal statistics
+# Raster analysis, vectorization, zonal statistics, and change detection
 api_router.include_router(analysis.router, prefix="/analysis", tags=["Geospatial Analysis"])
+api_router.include_router(change_detection.router, prefix="/analysis", tags=["Geospatial Analysis"])
 
 # Natural-language query planning
 api_router.include_router(query.router, prefix="/query", tags=["Query Planning"])
