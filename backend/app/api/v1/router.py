@@ -1,5 +1,5 @@
 from fastapi import APIRouter
-from app.api.v1.endpoints import ingest, session, spatial, analysis
+from app.api.v1.endpoints import ingest, session, spatial, analysis, query
 
 api_router = APIRouter()
 
@@ -14,3 +14,6 @@ api_router.include_router(spatial.router, prefix="/spatial", tags=["Geospatial A
 
 # Raster analysis, vectorization, and zonal statistics
 api_router.include_router(analysis.router, prefix="/analysis", tags=["Geospatial Analysis"])
+
+# Natural-language query planning
+api_router.include_router(query.router, prefix="/query", tags=["Query Planning"])
