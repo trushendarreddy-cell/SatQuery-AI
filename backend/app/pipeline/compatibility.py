@@ -12,6 +12,7 @@ from app.schemas.spatial_schema import (
     CRSCompatibility,
     SpatialOverlapOverview,
     GridAlignmentOverview,
+    ResolutionCompatibilityStatus,
 )
 
 
@@ -55,8 +56,11 @@ class CompatibilityEngine:
         # 5. Spatial Overlap Evaluation (Reusing Task 5 engine)
         overlap_result = SpatialOverlapEngine.calculate_overlap(meta1, meta2)
         spatial_info = SpatialOverlapOverview(
+            status=overlap_result.status,
+            intersects=overlap_result.intersects,
             overlap_exists=overlap_result.overlap_exists,
             overlap_percentage=overlap_result.overlap_percentage,
+            intersection_bounds=overlap_result.intersection_bounds_wgs84,
             intersection_area_sqkm=overlap_result.intersection_area_sqkm,
         )
 
@@ -159,15 +163,26 @@ class CompatibilityEngine:
 
         ratio = round(float(max_r / min_r), 2) if min_r > 0 else 1.0
 
-        if ratio <= cls.RESOLUTION_RATIO_HIGH_THRESHOLD:
+        if ratio <= 1.01:
             level = "high"
             compatible = True
+            status = ResolutionCompatibilityStatus.DIRECTLY_COMPATIBLE
+            requires_resampling = False
+        elif ratio <= cls.RESOLUTION_RATIO_HIGH_THRESHOLD:
+            level = "high"
+            compatible = True
+            status = ResolutionCompatibilityStatus.COMPATIBLE_AFTER_RESAMPLING
+            requires_resampling = True
         elif ratio <= cls.RESOLUTION_RATIO_MAX_THRESHOLD:
             level = "medium"
             compatible = True
+            status = ResolutionCompatibilityStatus.COMPATIBLE_AFTER_RESAMPLING
+            requires_resampling = True
         else:
             level = "low"
             compatible = False
+            status = ResolutionCompatibilityStatus.INCOMPATIBLE
+            requires_resampling = True
 
         return ResolutionCompatibility(
             image_1_resolution=res1,
@@ -176,6 +191,8 @@ class CompatibilityEngine:
             unit=unit,
             compatible=compatible,
             level=level,
+            status=status,
+            requires_resampling=requires_resampling,
         )
 
     @classmethod
@@ -238,6 +255,8 @@ class CompatibilityEngine:
                 unit="pixel",
                 compatible=False,
                 level="unreferenced",
+                status=ResolutionCompatibilityStatus.UNKNOWN,
+                requires_resampling=False,
             ),
             crs=CRSCompatibility(
                 same_crs=False,

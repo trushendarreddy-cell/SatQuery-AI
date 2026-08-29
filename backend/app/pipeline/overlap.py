@@ -7,7 +7,7 @@ from rasterio.warp import transform_bounds
 
 from app.core.session_cache import session_manager
 from app.schemas.metadata_schema import ImageCategory, UnifiedImageMetadata
-from app.schemas.spatial_schema import SpatialOverlapResult
+from app.schemas.spatial_schema import SpatialOverlapResult, OverlapStatus
 
 
 class SpatialOverlapEngine:
@@ -27,6 +27,8 @@ class SpatialOverlapEngine:
         # 1. Verify both are georeferenced
         if not meta1.has_geospatial_metadata or not meta1.geospatial:
             return SpatialOverlapResult(
+                status=OverlapStatus.UNKNOWN,
+                intersects=None,
                 overlap_exists=False,
                 overlap_percentage=0.0,
                 overlap_percentage_image_1=0.0,
@@ -38,6 +40,8 @@ class SpatialOverlapEngine:
 
         if not meta2.has_geospatial_metadata or not meta2.geospatial:
             return SpatialOverlapResult(
+                status=OverlapStatus.UNKNOWN,
+                intersects=None,
                 overlap_exists=False,
                 overlap_percentage=0.0,
                 overlap_percentage_image_1=0.0,
@@ -53,6 +57,8 @@ class SpatialOverlapEngine:
 
         if not b1 or not b2:
             return SpatialOverlapResult(
+                status=OverlapStatus.UNKNOWN,
+                intersects=None,
                 overlap_exists=False,
                 overlap_percentage=0.0,
                 overlap_percentage_image_1=0.0,
@@ -71,6 +77,8 @@ class SpatialOverlapEngine:
             intersection = poly1.intersection(poly2)
         except Exception as exc:
             return SpatialOverlapResult(
+                status=OverlapStatus.UNKNOWN,
+                intersects=None,
                 overlap_exists=False,
                 overlap_percentage=0.0,
                 overlap_percentage_image_1=0.0,
@@ -82,11 +90,14 @@ class SpatialOverlapEngine:
 
         if intersection.is_empty or intersection.area <= 1e-12:
             return SpatialOverlapResult(
+                status=OverlapStatus.NO_OVERLAP,
+                intersects=False,
                 overlap_exists=False,
                 overlap_percentage=0.0,
                 overlap_percentage_image_1=0.0,
                 overlap_percentage_image_2=0.0,
                 intersection_geojson=None,
+                intersection_bounds=None,
                 intersection_bounds_wgs84=None,
                 intersection_area_sqkm=0.0,
                 messages=["The two scenes do not geographically intersect."],
@@ -135,12 +146,20 @@ class SpatialOverlapEngine:
                 f"Low spatial overlap detected ({iou_pct}% IoU). Downstream change detection may only cover a small common sub-region."
             )
 
+        if pct1 >= 99.9 and pct2 >= 99.9:
+            overlap_status = OverlapStatus.FULL_OVERLAP
+        else:
+            overlap_status = OverlapStatus.PARTIAL_OVERLAP
+
         return SpatialOverlapResult(
+            status=overlap_status,
+            intersects=True,
             overlap_exists=True,
             overlap_percentage=iou_pct,
             overlap_percentage_image_1=pct1,
             overlap_percentage_image_2=pct2,
             intersection_geojson=geojson_geometry,
+            intersection_bounds=intersection_bounds,
             intersection_bounds_wgs84=intersection_bounds,
             intersection_area_sqkm=area_sqkm,
             messages=messages,
@@ -160,6 +179,8 @@ def check_spatial_overlap(
     session = session_manager.get_session(session_id)
     if not session:
         return SpatialOverlapResult(
+            status=OverlapStatus.UNKNOWN,
+            intersects=None,
             overlap_exists=False,
             overlap_percentage=0.0,
             overlap_percentage_image_1=0.0,
@@ -174,6 +195,8 @@ def check_spatial_overlap(
 
     if not meta1:
         return SpatialOverlapResult(
+            status=OverlapStatus.UNKNOWN,
+            intersects=None,
             overlap_exists=False,
             overlap_percentage=0.0,
             overlap_percentage_image_1=0.0,
@@ -185,6 +208,8 @@ def check_spatial_overlap(
 
     if not meta2:
         return SpatialOverlapResult(
+            status=OverlapStatus.UNKNOWN,
+            intersects=None,
             overlap_exists=False,
             overlap_percentage=0.0,
             overlap_percentage_image_1=0.0,

@@ -39,25 +39,47 @@ class GridAlignmentEngine:
         - Preserves spectral band count and data types.
         - Original files are never modified.
         """
-        resamp = cls.RESAMPLING_MAP.get(resampling_method.lower(), Resampling.bilinear)
-
-        with rasterio.open(ref_path) as ref, rasterio.open(src_path) as src:
-            ref_crs = ref.crs
-            ref_transform = ref.transform
-            ref_width = ref.width
-            ref_height = ref.height
-            src_crs = src.crs
-
-            if not ref_crs or not src_crs:
+        with rasterio.open(ref_path) as ref:
+            if not ref.crs:
                 raise ValueError("Both reference and target rasters must possess valid CRS metadata.")
 
-            # Create output profile
+            return cls.reproject_to_grid(
+                src_path=src_path,
+                output_path=output_path,
+                dst_crs=ref.crs,
+                dst_transform=ref.transform,
+                width=ref.width,
+                height=ref.height,
+                resampling_method=resampling_method,
+            )
+
+    @classmethod
+    def reproject_to_grid(
+        cls,
+        src_path: Path,
+        output_path: Path,
+        dst_crs,
+        dst_transform,
+        width: int,
+        height: int,
+        resampling_method: str = "bilinear",
+    ) -> Dict[str, Any]:
+        """Warps a source raster onto an explicit destination pixel grid without modifying the source."""
+        if width < 1 or height < 1:
+            raise ValueError("Destination grid must have positive width and height.")
+
+        resamp = cls.RESAMPLING_MAP.get(resampling_method.lower(), Resampling.bilinear)
+
+        with rasterio.open(src_path) as src:
+            if not src.crs:
+                raise ValueError("Source raster must possess valid CRS metadata.")
+
             profile = src.profile.copy()
             profile.update(
-                crs=ref_crs,
-                transform=ref_transform,
-                width=ref_width,
-                height=ref_height,
+                crs=dst_crs,
+                transform=dst_transform,
+                width=width,
+                height=height,
                 driver="GTiff",
             )
 
@@ -67,21 +89,20 @@ class GridAlignmentEngine:
                         source=rasterio.band(src, b),
                         destination=rasterio.band(dst, b),
                         src_transform=src.transform,
-                        src_crs=src_crs,
-                        dst_transform=ref_transform,
-                        dst_crs=ref_crs,
+                        src_crs=src.crs,
+                        dst_transform=dst_transform,
+                        dst_crs=dst_crs,
                         resampling=resamp,
                         src_nodata=src.nodatavals[b - 1],
                         dst_nodata=src.nodatavals[b - 1] or 0,
                     )
 
-            res_x, res_y = ref.res
             return {
-                "source_crs": src_crs.to_string(),
-                "target_crs": ref_crs.to_string(),
-                "resolution": [float(abs(res_x)), float(abs(res_y))],
-                "width": int(ref_width),
-                "height": int(ref_height),
+                "source_crs": src.crs.to_string(),
+                "target_crs": dst_crs.to_string() if hasattr(dst_crs, "to_string") else str(dst_crs),
+                "resolution": [float(abs(dst_transform.a)), float(abs(dst_transform.e))],
+                "width": int(width),
+                "height": int(height),
                 "band_count": int(src.count),
                 "dtype": str(src.dtypes[0]),
                 "resampling": resampling_method,

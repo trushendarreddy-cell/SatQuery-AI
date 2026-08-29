@@ -7,10 +7,13 @@ from app.schemas.spatial_schema import (
     AlignmentResult,
     CompatibilityRequest,
     CompatibilityResult,
+    ClipRequest,
+    ClipResult,
 )
 from app.pipeline.overlap import check_spatial_overlap
 from app.pipeline.alignment import align_images
 from app.pipeline.compatibility import check_compatibility
+from app.pipeline.clip import clip_to_common_extent
 
 router = APIRouter()
 
@@ -69,5 +72,26 @@ async def align_spatial_rasters(payload: AlignmentRequest):
         session_id=payload.session_id,
         reference_image_id=payload.reference_image_id,
         target_image_id=payload.target_image_id,
+        resampling_method=payload.resampling_method or "bilinear",
+    )
+
+
+@router.post(
+    "/clip",
+    response_model=ClipResult,
+    status_code=status.HTTP_200_OK,
+    summary="Clip two rasters to their shared spatial extent",
+    description=(
+        "Warps both georeferenced GeoTIFFs onto a shared pixel grid covering their "
+        "spatial intersection. Image 1 defines CRS and pixel alignment. Unreferenced "
+        "visual images are rejected; no coordinates are invented."
+    ),
+)
+async def clip_spatial_rasters(payload: ClipRequest):
+    """Clips two session rasters to a common overlapping grid."""
+    return clip_to_common_extent(
+        session_id=payload.session_id,
+        image_id_1=payload.image_id_1,
+        image_id_2=payload.image_id_2,
         resampling_method=payload.resampling_method or "bilinear",
     )

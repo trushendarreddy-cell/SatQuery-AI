@@ -1,1 +1,1 @@
-"""Data pipeline modules: validation, metadata extraction, alignment, and compatibility."""
+"""Data pipeline modules: validation, metadata, alignment, overlap, compatibility, and clipping."""

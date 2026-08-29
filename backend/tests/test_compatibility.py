@@ -26,6 +26,8 @@ def test_compatibility_valid_pair(geotiff_date1_path, geotiff_date2_path):
     assert 180 <= result.temporal.time_delta_days <= 186
     assert result.resolution.compatible is True
     assert result.resolution.ratio == 1.0
+    assert result.resolution.requires_resampling is False
+    assert result.resolution.status.value == "directly_compatible"
     assert result.crs.same_crs is True
     assert result.spatial.overlap_exists is True
     assert len(result.recommendations) > 0

@@ -2,6 +2,7 @@ from app.core.session_cache import session_manager
 from app.pipeline.validator import UniversalImageValidator
 from app.pipeline.metadata import UniversalMetadataExtractor
 from app.pipeline.overlap import check_spatial_overlap, SpatialOverlapEngine
+from app.schemas.spatial_schema import OverlapStatus
 
 
 def _setup_session_images(session_id, paths):
@@ -28,6 +29,8 @@ def test_overlap_identical_bounds(valid_geotiff_path):
     assert result.intersection_geojson is not None
     assert result.intersection_geojson["type"] == "Polygon"
     assert result.intersection_bounds_wgs84 is not None
+    assert result.status == OverlapStatus.FULL_OVERLAP
+    assert result.intersects is True
 
 
 def test_overlap_partial(geotiff_date1_path, geotiff_date2_path):
@@ -37,6 +40,8 @@ def test_overlap_partial(geotiff_date1_path, geotiff_date2_path):
     
     assert result.overlap_exists is True
     assert 0.0 < result.overlap_percentage < 100.0
+    assert result.status == OverlapStatus.PARTIAL_OVERLAP
+    assert result.intersects is True
     assert result.intersection_geojson is not None
     assert result.intersection_area_sqkm is not None
 
@@ -48,6 +53,8 @@ def test_overlap_zero_disjoint_scenes(valid_geotiff_path, geotiff_no_overlap_pat
     
     assert result.overlap_exists is False
     assert result.overlap_percentage == 0.0
+    assert result.status == OverlapStatus.NO_OVERLAP
+    assert result.intersects is False
     assert result.intersection_geojson is None
     assert any("do not geographically intersect" in m for m in result.messages)
 
@@ -69,4 +76,6 @@ def test_overlap_rejects_visual_jpg(valid_geotiff_path, valid_jpg_path):
     
     assert result.overlap_exists is False
     assert result.intersection_geojson is None
+    assert result.status == OverlapStatus.UNKNOWN
+    assert result.intersects is None
     assert any("lacks geospatial metadata" in w for w in result.warnings)

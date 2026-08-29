@@ -1,1 +1,1 @@
-"""Geospatial processing modules: cloud/shadow, seasonal filtering, vectorization, and statistics."""
+"""Geospatial processing: common-extent clipping, plus future mask/vector/statistics modules."""

@@ -75,3 +75,31 @@ def test_api_spatial_align(valid_geotiff_path, geotiff_diff_crs_path):
     assert data["width"] == 10
     assert data["height"] == 10
     assert data["aligned_metadata"] is not None
+
+
+def test_api_spatial_clip(geotiff_date1_path, geotiff_date2_path):
+    """Test POST /api/v1/spatial/clip endpoint JSON types and clipped pair."""
+    sid, img_ids = _upload_test_pair(geotiff_date1_path, geotiff_date2_path)
+
+    res = client.post(
+        "/api/v1/spatial/clip",
+        json={
+            "session_id": sid,
+            "image_id_1": img_ids[0],
+            "image_id_2": img_ids[1],
+            "resampling_method": "nearest",
+        },
+    )
+    assert res.status_code == 200
+    data = res.json()
+    assert data["success"] is True
+    assert isinstance(data["success"], bool)
+    assert isinstance(data["width"], int)
+    assert isinstance(data["height"], int)
+    assert isinstance(data["resolution"][0], float)
+    assert data["width"] == 5
+    assert data["height"] == 5
+    assert data["clipped_image_id_1"] != ""
+    assert data["clipped_image_id_2"] != ""
+    assert data["clipped_metadata_1"] is not None
+    assert data["intersection_bounds_wgs84"]["min_lon"] is not None
