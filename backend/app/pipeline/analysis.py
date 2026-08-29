@@ -9,7 +9,7 @@ from app.geospatial.cloud_mask import classify_cloud_shadow, write_class_mask
 from app.geospatial.seasonal import evaluate_seasonal_risk
 from app.geospatial.vectorize import polygonize_mask_file
 from app.geospatial.zonal import compute_zonal_statistics
-from app.geospatial.spectral_index import compute_ndvi
+from app.geospatial.spectral_index import compute_ndvi, compute_evi, compute_ndwi
 from app.pipeline.metadata import UniversalMetadataExtractor
 from app.schemas.analysis_schema import (
     AreaResult,
@@ -387,15 +387,15 @@ def compute_spectral_index(
     index_type: SpectralIndexType = SpectralIndexType.NDVI,
     red_band: int = 3,
     nir_band: int = 4,
+    blue_band: Optional[int] = None,
+    green_band: Optional[int] = None,
 ) -> SpectralIndexResult:
     """
     Computes a spectral index raster from a single multispectral GeoTIFF.
 
-    Currently supports NDVI = (NIR - Red) / (NIR + Red).
-
-    Band mapping is explicit: red_band and nir_band are 1-based indices supplied
-    by the caller because the existing metadata model does not reliably identify
-    spectral band identities from GeoTIFF tags alone.
+    Band mapping is explicit: callers supply 1-based band indices because the
+    existing metadata model does not reliably identify spectral band identities
+    from GeoTIFF tags alone.
     """
     session, meta, path, err = _session_image(session_id, image_id)
     if err or meta is None or path is None:
@@ -413,6 +413,8 @@ def compute_spectral_index(
             transform=[0, 1, 0, 0, 0, 1],
             red_band=red_band,
             nir_band=nir_band,
+            blue_band=blue_band,
+            green_band=green_band,
             valid_pixel_count=0,
             nodata_pixel_count=0,
             min_value=None,
@@ -437,6 +439,8 @@ def compute_spectral_index(
             transform=[0, 1, 0, 0, 0, 1],
             red_band=red_band,
             nir_band=nir_band,
+            blue_band=blue_band,
+            green_band=green_band,
             valid_pixel_count=0,
             nodata_pixel_count=0,
             min_value=None,
@@ -444,30 +448,6 @@ def compute_spectral_index(
             mean_value=None,
             message="Spectral index requires a georeferenced raster. Visual images are not used.",
             warnings=["Image lacks geospatial metadata. No spectral index was fabricated."],
-        )
-
-    if index_type != SpectralIndexType.NDVI:
-        return SpectralIndexResult(
-            success=False,
-            session_id=session_id,
-            image_id=image_id,
-            index_type=index_type.value,
-            index_image_id="",
-            artifact_filename="",
-            width=0,
-            height=0,
-            band_count=1,
-            crs="",
-            transform=[0, 1, 0, 0, 0, 1],
-            red_band=red_band,
-            nir_band=nir_band,
-            valid_pixel_count=0,
-            nodata_pixel_count=0,
-            min_value=None,
-            max_value=None,
-            mean_value=None,
-            message=f"Spectral index '{index_type.value}' is not implemented.",
-            warnings=[f"Index type '{index_type.value}' is not supported."],
         )
 
     try:
@@ -487,6 +467,8 @@ def compute_spectral_index(
                     transform=[0, 1, 0, 0, 0, 1],
                     red_band=red_band,
                     nir_band=nir_band,
+                    blue_band=blue_band,
+                    green_band=green_band,
                     valid_pixel_count=0,
                     nodata_pixel_count=0,
                     min_value=None,
@@ -511,6 +493,8 @@ def compute_spectral_index(
                                float(src.transform.d), float(src.transform.e), float(src.transform.f)],
                     red_band=red_band,
                     nir_band=nir_band,
+                    blue_band=blue_band,
+                    green_band=green_band,
                     valid_pixel_count=0,
                     nodata_pixel_count=0,
                     min_value=None,
@@ -535,6 +519,8 @@ def compute_spectral_index(
                                float(src.transform.d), float(src.transform.e), float(src.transform.f)],
                     red_band=red_band,
                     nir_band=nir_band,
+                    blue_band=blue_band,
+                    green_band=green_band,
                     valid_pixel_count=0,
                     nodata_pixel_count=0,
                     min_value=None,
@@ -545,16 +531,113 @@ def compute_spectral_index(
                 )
 
         index_uuid = uuid.uuid4().hex[:8]
-        index_filename = f"ndvi_{image_id}_{index_uuid}.tif"
-        index_path = session.session_dir / index_filename
-
-        result = compute_ndvi(
-            red_path=path,
-            nir_path=path,
-            output_path=index_path,
-            red_band=red_band,
-            nir_band=nir_band,
-        )
+        if index_type == SpectralIndexType.NDVI:
+            index_filename = f"ndvi_{image_id}_{index_uuid}.tif"
+            index_path = session.session_dir / index_filename
+            result = compute_ndvi(
+                red_path=path,
+                nir_path=path,
+                output_path=index_path,
+                red_band=red_band,
+                nir_band=nir_band,
+            )
+        elif index_type == SpectralIndexType.EVI:
+            if blue_band is None:
+                return SpectralIndexResult(
+                    success=False,
+                    session_id=session_id,
+                    image_id=image_id,
+                    index_type=index_type.value,
+                    index_image_id="",
+                    artifact_filename="",
+                    width=0,
+                    height=0,
+                    band_count=1,
+                    crs="",
+                    transform=[0, 1, 0, 0, 0, 1],
+                    red_band=red_band,
+                    nir_band=nir_band,
+                    blue_band=blue_band,
+                    green_band=green_band,
+                    valid_pixel_count=0,
+                    nodata_pixel_count=0,
+                    min_value=None,
+                    max_value=None,
+                    mean_value=None,
+                    message="EVI requires blue_band.",
+                    warnings=["blue_band is required for EVI computation."],
+                )
+            index_filename = f"evi_{image_id}_{index_uuid}.tif"
+            index_path = session.session_dir / index_filename
+            result = compute_evi(
+                red_path=path,
+                nir_path=path,
+                blue_path=path,
+                output_path=index_path,
+                red_band=red_band,
+                nir_band=nir_band,
+                blue_band=blue_band,
+            )
+        elif index_type == SpectralIndexType.NDWI:
+            if green_band is None:
+                return SpectralIndexResult(
+                    success=False,
+                    session_id=session_id,
+                    image_id=image_id,
+                    index_type=index_type.value,
+                    index_image_id="",
+                    artifact_filename="",
+                    width=0,
+                    height=0,
+                    band_count=1,
+                    crs="",
+                    transform=[0, 1, 0, 0, 0, 1],
+                    red_band=red_band,
+                    nir_band=nir_band,
+                    blue_band=blue_band,
+                    green_band=green_band,
+                    valid_pixel_count=0,
+                    nodata_pixel_count=0,
+                    min_value=None,
+                    max_value=None,
+                    mean_value=None,
+                    message="NDWI requires green_band.",
+                    warnings=["green_band is required for NDWI computation."],
+                )
+            index_filename = f"ndwi_{image_id}_{index_uuid}.tif"
+            index_path = session.session_dir / index_filename
+            result = compute_ndwi(
+                green_path=path,
+                nir_path=path,
+                output_path=index_path,
+                green_band=green_band,
+                nir_band=nir_band,
+            )
+        else:
+            return SpectralIndexResult(
+                success=False,
+                session_id=session_id,
+                image_id=image_id,
+                index_type=index_type.value,
+                index_image_id="",
+                artifact_filename="",
+                width=0,
+                height=0,
+                band_count=1,
+                crs="",
+                transform=[0, 1, 0, 0, 0, 1],
+                red_band=red_band,
+                nir_band=nir_band,
+                blue_band=blue_band,
+                green_band=green_band,
+                valid_pixel_count=0,
+                nodata_pixel_count=0,
+                min_value=None,
+                max_value=None,
+                mean_value=None,
+                message=f"Spectral index '{index_type.value}' is not implemented.",
+                warnings=[f"Index type '{index_type.value}' is not supported."],
+            )
 
         index_meta = UniversalMetadataExtractor.extract(
             file_path=index_path,
@@ -576,15 +659,17 @@ def compute_spectral_index(
             band_count=1,
             crs=result["crs"],
             transform=result["transform"],
-            red_band=result["red_band"],
-            nir_band=result["nir_band"],
+            red_band=result.get("red_band", red_band),
+            nir_band=result.get("nir_band", nir_band),
+            blue_band=result.get("blue_band", blue_band),
+            green_band=result.get("green_band", green_band),
             valid_pixel_count=result["valid_pixel_count"],
             nodata_pixel_count=result["nodata_pixel_count"],
             min_value=result["min_value"],
             max_value=result["max_value"],
             mean_value=result["mean_value"],
             message=result["message"],
-            messages=[f"NDVI raster written to '{index_filename}'."],
+            messages=[f"{index_type.value.upper()} raster written to '{index_filename}'."],
             warnings=[],
             index_metadata=index_meta,
         )
@@ -603,6 +688,8 @@ def compute_spectral_index(
             transform=[0, 1, 0, 0, 0, 1],
             red_band=red_band,
             nir_band=nir_band,
+            blue_band=blue_band,
+            green_band=green_band,
             valid_pixel_count=0,
             nodata_pixel_count=0,
             min_value=None,

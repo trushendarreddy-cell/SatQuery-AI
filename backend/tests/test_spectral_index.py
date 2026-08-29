@@ -296,3 +296,161 @@ def test_spectral_index_artifact_preserves_metadata(geotiff_date1_path):
     assert len(res.transform) == 6
     assert res.width == 10
     assert res.height == 10
+
+
+def test_api_spectral_index_evi(geotiff_date1_path):
+    """Test POST /api/v1/analysis/spectral-index with EVI."""
+    sid, img_id = _upload(geotiff_date1_path)
+    res = client.post(
+        "/api/v1/analysis/spectral-index",
+        json={
+            "session_id": sid,
+            "image_id": img_id,
+            "index_type": "evi",
+            "red_band": 1,
+            "nir_band": 2,
+            "blue_band": 3,
+        },
+    )
+    assert res.status_code == 200
+    data = res.json()
+    assert data["success"] is True
+    assert data["index_type"] == "evi"
+    assert data["blue_band"] == 3
+    assert data["artifact_filename"].endswith(".tif")
+
+
+def test_api_spectral_index_ndwi(geotiff_date1_path):
+    """Test POST /api/v1/analysis/spectral-index with NDWI."""
+    sid, img_id = _upload(geotiff_date1_path)
+    res = client.post(
+        "/api/v1/analysis/spectral-index",
+        json={
+            "session_id": sid,
+            "image_id": img_id,
+            "index_type": "ndwi",
+            "green_band": 1,
+            "nir_band": 2,
+        },
+    )
+    assert res.status_code == 200
+    data = res.json()
+    assert data["success"] is True
+    assert data["index_type"] == "ndwi"
+    assert data["green_band"] == 1
+    assert data["artifact_filename"].endswith(".tif")
+
+
+def test_api_spectral_index_evi_missing_blue(geotiff_date1_path):
+    """Test POST /api/v1/analysis/spectral-index rejects EVI without blue_band."""
+    sid, img_id = _upload(geotiff_date1_path)
+    res = client.post(
+        "/api/v1/analysis/spectral-index",
+        json={
+            "session_id": sid,
+            "image_id": img_id,
+            "index_type": "evi",
+            "red_band": 1,
+            "nir_band": 2,
+        },
+    )
+    assert res.status_code == 200
+    data = res.json()
+    assert data["success"] is False
+    assert "blue_band" in data["message"].lower()
+
+
+def test_api_spectral_index_ndwi_missing_green(geotiff_date1_path):
+    """Test POST /api/v1/analysis/spectral-index rejects NDWI without green_band."""
+    sid, img_id = _upload(geotiff_date1_path)
+    res = client.post(
+        "/api/v1/analysis/spectral-index",
+        json={
+            "session_id": sid,
+            "image_id": img_id,
+            "index_type": "ndwi",
+            "red_band": 1,
+            "nir_band": 2,
+        },
+    )
+    assert res.status_code == 200
+    data = res.json()
+    assert data["success"] is False
+    assert "green_band" in data["message"].lower()
+
+
+def test_spectral_index_unit_evi_values():
+    """Unit test: EVI values are correct for known arrays."""
+    from app.geospatial.spectral_index import compute_evi
+    import rasterio
+    from rasterio.transform import from_origin
+
+    red = np.full((3, 3), 100, dtype=np.float32)
+    nir = np.full((3, 3), 500, dtype=np.float32)
+    blue = np.full((3, 3), 50, dtype=np.float32)
+
+    transform = from_origin(0, 0, 1, 1)
+    crs = "EPSG:32643"
+
+    red_path = Path("test_evi_red.tif")
+    nir_path = Path("test_evi_nir.tif")
+    blue_path = Path("test_evi_blue.tif")
+    out_path = Path("test_evi.tif")
+
+    with rasterio.open(red_path, "w", driver="GTiff", height=3, width=3, count=1,
+                       dtype=rasterio.float32, crs=crs, transform=transform) as dst:
+        dst.write(red, 1)
+    with rasterio.open(nir_path, "w", driver="GTiff", height=3, width=3, count=1,
+                       dtype=rasterio.float32, crs=crs, transform=transform) as dst:
+        dst.write(nir, 1)
+    with rasterio.open(blue_path, "w", driver="GTiff", height=3, width=3, count=1,
+                       dtype=rasterio.float32, crs=crs, transform=transform) as dst:
+        dst.write(blue, 1)
+
+    try:
+        result = compute_evi(red_path, nir_path, blue_path, out_path, red_band=1, nir_band=1, blue_band=1)
+        expected = 2.5 * (500 - 100) / (500 + 6 * 100 - 7.5 * 50 + 1)
+        assert result["valid_pixel_count"] == 9
+        assert pytest.approx(result["min_value"]) == expected
+        assert pytest.approx(result["max_value"]) == expected
+        assert pytest.approx(result["mean_value"]) == expected
+    finally:
+        for p in (red_path, nir_path, blue_path, out_path):
+            if p.exists():
+                p.unlink()
+
+
+def test_spectral_index_unit_ndwi_values():
+    """Unit test: NDWI values are correct for known arrays."""
+    from app.geospatial.spectral_index import compute_ndwi
+    import rasterio
+    from rasterio.transform import from_origin
+
+    green = np.full((3, 3), 400, dtype=np.float32)
+    nir = np.full((3, 3), 100, dtype=np.float32)
+
+    transform = from_origin(0, 0, 1, 1)
+    crs = "EPSG:32643"
+
+    green_path = Path("test_ndwi_green.tif")
+    nir_path = Path("test_ndwi_nir.tif")
+    out_path = Path("test_ndwi.tif")
+
+    with rasterio.open(green_path, "w", driver="GTiff", height=3, width=3, count=1,
+                       dtype=rasterio.float32, crs=crs, transform=transform) as dst:
+        dst.write(green, 1)
+    with rasterio.open(nir_path, "w", driver="GTiff", height=3, width=3, count=1,
+                       dtype=rasterio.float32, crs=crs, transform=transform) as dst:
+        dst.write(nir, 1)
+
+    try:
+        result = compute_ndwi(green_path, nir_path, out_path, green_band=1, nir_band=1)
+        expected = (400 - 100) / (400 + 100)
+        assert result["valid_pixel_count"] == 9
+        assert pytest.approx(result["min_value"]) == expected
+        assert pytest.approx(result["max_value"]) == expected
+        assert pytest.approx(result["mean_value"]) == expected
+    finally:
+        for p in (green_path, nir_path, out_path):
+            if p.exists():
+                p.unlink()

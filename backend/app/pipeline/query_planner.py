@@ -23,8 +23,7 @@ class QueryPlanner:
     ]
 
     _UNSUPPORTED_INTENTS = {
-        QueryIntent.CHANGE_DETECTION,
-        QueryIntent.VEGETATION_ANALYSIS,
+        QueryIntent.UNSUPPORTED,
     }
 
     @classmethod
@@ -191,21 +190,23 @@ class QueryPlanner:
             plan = [
                 QueryPlan(tool_name="check_spatial_overlap", arguments={"session_id": "", "image_id_1": geo_ids[0], "image_id_2": geo_ids[1]}),
                 QueryPlan(tool_name="check_compatibility", arguments={"session_id": "", "image_id_1": geo_ids[0], "image_id_2": geo_ids[1]}),
-                QueryPlan(tool_name="align_images", arguments={"session_id": "", "reference_image_id": geo_ids[0], "target_image_id": geo_ids[1], "resampling_method": "bilinear"}),
+                QueryPlan(tool_name="run_change_detection", arguments={"session_id": "", "image_id_1": geo_ids[0], "image_id_2": geo_ids[1], "threshold": 0.1, "threshold_method": "relative_normalized"}),
             ]
-            return plan, geo_ids[:2], "Preparing two scenes for change detection: overlap check, compatibility, and alignment. Actual change detection algorithm is not yet implemented."
+            return plan, geo_ids[:2], "Running pixel/spectral change detection between two georeferenced scenes on a common grid."
 
         if intent == QueryIntent.VEGETATION_ANALYSIS:
-            plan = []
-            return plan, image_ids, "Vegetation analysis requires spectral index computation (e.g., NDVI) which is not yet implemented."
+            if not geo_ids:
+                plan = []
+                return plan, [], "No georeferenced images available for vegetation analysis."
+            target = geo_ids[0]
+            plan = [
+                QueryPlan(tool_name="compute_spectral_index", arguments={"session_id": "", "image_id": target, "index_type": "ndvi", "red_band": 3, "nir_band": 4}),
+            ]
+            return plan, [target], "Computing NDVI vegetation index for the first georeferenced image."
 
         plan = []
         return plan, image_ids, "Unable to determine a specific analysis plan for this query."
 
     @classmethod
     def _unsupported_reason(cls, intent: QueryIntent) -> str:
-        if intent == QueryIntent.CHANGE_DETECTION:
-            return "Change detection requires a pixel-differencing or classification algorithm which is not yet implemented."
-        if intent == QueryIntent.VEGETATION_ANALYSIS:
-            return "Vegetation analysis requires spectral index computation (e.g., NDVI) which is not yet implemented."
         return "This query type is not supported."

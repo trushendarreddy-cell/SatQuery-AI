@@ -1,9 +1,14 @@
-from fastapi import FastAPI  # pyright: ignore[reportMissingImports]
+from fastapi import FastAPI, Request  # pyright: ignore[reportMissingImports]
+from fastapi.exceptions import RequestValidationError  # pyright: ignore[reportMissingImports]
+from fastapi.responses import JSONResponse  # pyright: ignore[reportMissingImports]
 from fastapi.middleware.cors import CORSMiddleware  # pyright: ignore[reportMissingImports]
 from fastapi.openapi.utils import get_openapi  # pyright: ignore[reportMissingImports]
 
 from app.core.config import settings
+from app.core.logging import setup_logging
 from app.api.v1.router import api_router
+
+setup_logging()
 
 app = FastAPI(
     title=settings.PROJECT_NAME,
@@ -21,6 +26,35 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+
+@app.exception_handler(RequestValidationError)
+async def validation_exception_handler(request: Request, exc: RequestValidationError):
+    """Return consistent JSON for validation errors."""
+    return JSONResponse(
+        status_code=422,
+        content={
+            "success": False,
+            "error": "validation_error",
+            "message": "Request validation failed.",
+            "details": exc.errors(),
+        },
+    )
+
+
+@app.exception_handler(Exception)
+async def generic_exception_handler(request: Request, exc: Exception):
+    """Return consistent JSON for unhandled exceptions."""
+    return JSONResponse(
+        status_code=500,
+        content={
+            "success": False,
+            "error": "internal_server_error",
+            "message": "An unexpected error occurred.",
+            "details": str(exc),
+        },
+    )
+
 
 # Include API v1 Router
 app.include_router(api_router, prefix=settings.API_V1_PREFIX)

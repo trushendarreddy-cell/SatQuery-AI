@@ -75,4 +75,6 @@ async def api_spectral_index(payload: SpectralIndexRequest):
         index_type=payload.index_type,
         red_band=payload.red_band,
         nir_band=payload.nir_band,
+        blue_band=payload.blue_band,
+        green_band=payload.green_band,
     )

@@ -109,9 +109,8 @@ def test_query_analyze_unsupported_change_detection(geotiff_date1_path, geotiff_
     assert res.status_code == 200
     data = res.json()
     assert data["intent"] == QueryIntent.CHANGE_DETECTION
-    assert data["status"] == QueryStatus.UNSUPPORTED
-    assert data["unsupported_reason"] is not None
-    assert "not yet implemented" in data["unsupported_reason"]
+    assert data["status"] == QueryStatus.READY
+    assert "run_change_detection" in data["required_tools"]
 
 
 def test_query_analyze_unsupported_vegetation(valid_geotiff_path):
@@ -120,8 +119,8 @@ def test_query_analyze_unsupported_vegetation(valid_geotiff_path):
     assert res.status_code == 200
     data = res.json()
     assert data["intent"] == QueryIntent.VEGETATION_ANALYSIS
-    assert data["status"] == QueryStatus.UNSUPPORTED
-    assert data["unsupported_reason"] is not None
+    assert data["status"] == QueryStatus.READY
+    assert "compute_spectral_index" in data["required_tools"]
 
 
 def test_query_analyze_missing_session():

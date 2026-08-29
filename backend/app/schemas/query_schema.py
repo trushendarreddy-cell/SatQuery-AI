@@ -46,3 +46,16 @@ class QueryResponse(BaseModel):
     unsupported_reason: Optional[str] = Field(None, description="Explanation when status is unsupported")
     plan: List[QueryPlan] = Field(default_factory=list, description="Ordered execution plan")
     results: List[Dict[str, Any]] = Field(default_factory=list, description="Tool execution results")
+
+
+class AgentQueryRequest(BaseModel):
+    session_id: str = Field(..., description="Active session identifier")
+    query: str = Field(..., description="Natural-language user query")
+
+
+class AgentQueryResponse(BaseModel):
+    session_id: str = Field(..., description="Active session identifier")
+    query: str = Field(..., description="Original query text")
+    response: str = Field(..., description="Natural-language response from the agent")
+    tool_calls: List[Dict[str, Any]] = Field(default_factory=list, description="Tool invocations performed")
+    provider: str = Field(..., description="LLM provider used for this request")

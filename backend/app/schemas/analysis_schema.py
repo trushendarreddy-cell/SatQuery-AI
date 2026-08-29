@@ -138,6 +138,8 @@ class ZonalStatsResult(BaseModel):
 
 class SpectralIndexType(str, Enum):
     NDVI = "ndvi"
+    EVI = "evi"
+    NDWI = "ndwi"
 
 
 class SpectralIndexRequest(BaseModel):
@@ -146,6 +148,8 @@ class SpectralIndexRequest(BaseModel):
     index_type: SpectralIndexType = Field(SpectralIndexType.NDVI, description="Spectral index to compute")
     red_band: int = Field(3, description="1-based red band index")
     nir_band: int = Field(4, description="1-based NIR band index")
+    blue_band: Optional[int] = Field(None, description="1-based blue band index (required for EVI)")
+    green_band: Optional[int] = Field(None, description="1-based green band index (required for NDWI)")
 
 
 class SpectralIndexResult(BaseModel):
@@ -162,6 +166,8 @@ class SpectralIndexResult(BaseModel):
     transform: List[float] = Field(..., description="Affine transform coefficients [c, a, b, d, e, f]")
     red_band: int = Field(..., description="Red band index used")
     nir_band: int = Field(..., description="NIR band index used")
+    blue_band: Optional[int] = Field(None, description="Blue band index used (EVI)")
+    green_band: Optional[int] = Field(None, description="Green band index used (NDWI)")
     valid_pixel_count: int = Field(..., description="Pixels with valid spectral data")
     nodata_pixel_count: int = Field(..., description="Pixels excluded as NoData")
     min_value: Optional[float] = Field(None, description="Minimum index value")
@@ -171,3 +177,18 @@ class SpectralIndexResult(BaseModel):
     messages: List[str] = Field(default_factory=list)
     warnings: List[str] = Field(default_factory=list)
     index_metadata: Optional[UnifiedImageMetadata] = Field(None, description="Metadata of the generated index raster")
+
+
+class AnalysisArtifact(BaseModel):
+    """Standardized metadata for analysis artifacts stored in session cache."""
+    artifact_id: str = Field(..., description="Unique artifact identifier")
+    session_id: str = Field(..., description="Session that owns this artifact")
+    source_image_ids: List[str] = Field(default_factory=list, description="Source image IDs used to produce this artifact")
+    analysis_type: str = Field(..., description="Type of analysis (e.g., ndvi, change_detection, cloud_mask)")
+    file_path: str = Field(..., description="Absolute path to the artifact file")
+    file_type: str = Field(..., description="File type (e.g., geotiff, json)")
+    crs: Optional[str] = Field(None, description="CRS if applicable")
+    bounds: Optional[Dict[str, float]] = Field(None, description="Spatial bounds if applicable")
+    width: Optional[int] = Field(None, description="Pixel width if raster")
+    height: Optional[int] = Field(None, description="Pixel height if raster")
+    band_count: Optional[int] = Field(None, description="Band count if raster")
