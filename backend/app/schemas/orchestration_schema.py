@@ -45,6 +45,7 @@ class ExecutionResult(BaseModel):
     artifacts: List[Dict[str, Any]] = Field(default_factory=list, description="Generated artifact records")
     statistics: Dict[str, Any] = Field(default_factory=dict, description="Aggregated quantitative metrics")
     llm_interpretation: Optional[Dict[str, Any]] = Field(None, description="Structured LLM interpretation, when available")
+    visual_reasoning: Optional[Dict[str, Any]] = Field(None, description="Structured visual evidence and interpretation, when available")
     message: str = Field("", description="Summary of the execution")
     warnings: List[str] = Field(default_factory=list, description="Non-fatal warnings")
     errors: List[str] = Field(default_factory=list, description="Structured errors")
@@ -54,6 +55,7 @@ class OrchestrationRequest(BaseModel):
     session_id: str = Field(..., description="Active session identifier")
     query: str = Field(..., description="Natural-language query to plan and execute")
     use_llm: bool = Field(True, description="Whether to attempt LLM-based query understanding before deterministic planning")
+    use_vision: bool = Field(True, description="Whether to attempt visual-only reasoning using the session image context")
 
 
 class OrchestrationResponse(BaseModel):

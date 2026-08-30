@@ -20,5 +20,5 @@ router = APIRouter()
     ),
 )
 async def orchestrate(payload: OrchestrationRequest):
-    """Deterministic orchestration endpoint with optional LLM intelligence."""
-    return orchestrate_analysis(payload.session_id, payload.query, use_llm=payload.use_llm)
+    """Deterministic orchestration endpoint with optional M9/M10 intelligence."""
+    return orchestrate_analysis(payload.session_id, payload.query, use_llm=payload.use_llm, use_vision=payload.use_vision)

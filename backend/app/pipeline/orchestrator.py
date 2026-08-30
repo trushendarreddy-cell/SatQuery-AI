@@ -12,6 +12,7 @@ from typing import Any, Dict, List, Optional, Tuple
 from app.agent.schemas import AgentToolCall, ToolStatus
 from app.agent.query_intelligence import QueryIntelligenceService
 from app.agent.tools import invoke_agent_tool
+from app.agent.vision import vision_service
 from app.core.session_cache import session_manager
 from app.schemas.orchestration_schema import (
     ExecutionResult,
@@ -30,13 +31,48 @@ class AnalysisOrchestrator:
     def __init__(self, intelligence_service: Optional[QueryIntelligenceService] = None):
         self.intelligence_service = intelligence_service or QueryIntelligenceService()
 
-    def orchestrate(self, session_id: str, query: str, use_llm: bool = True) -> OrchestrationResponse:
+    def _should_use_visual_reasoning(self, query: str) -> bool:
+        q = (query or "").lower()
+        visual_terms = [
+            "visible", "look", "view", "photo", "picture", "scene",
+            "what is visible", "what objects", "features are visible", "urban", "built",
+            "vegetation", "green", "healthy", "land cover", "expansion", "appearance",
+            "what is in this picture", "describe this image"
+        ]
+        return any(term in q for term in visual_terms)
+
+    def _visual_reasoning_for_session(self, session_id: str, query: str) -> Optional[Dict[str, Any]]:
+        session = session_manager.get_session(session_id)
+        if not session or not session.images:
+            return None
+        if not self._should_use_visual_reasoning(query):
+            return None
+        image = next(iter(session.images.values()))
+        result = vision_service.analyze(session_id, image.image_id, query, metadata=image.model_dump())
+        if result.supported:
+            return result.model_dump(exclude_none=True)
+        return {
+            "supported": False,
+            "confidence": 0.0,
+            "observations": [],
+            "visual_features": [],
+            "interpretation": "",
+            "limitations": result.limitations,
+            "warnings": result.warnings,
+            "provider": result.provider,
+        }
+
+    def orchestrate(self, session_id: str, query: str, use_llm: bool = True, use_vision: bool = True) -> OrchestrationResponse:
         llm_interpretation = None
         llm_reason = None
         if use_llm:
             interpretation_response = self.intelligence_service.interpret(session_id, query, use_llm=True)
             llm_interpretation = interpretation_response.interpretation.model_dump(exclude_none=True)
             llm_reason = interpretation_response.fallback_reason
+
+        visual_reasoning = None
+        if use_vision:
+            visual_reasoning = self._visual_reasoning_for_session(session_id, query)
 
         intent_hint = None
         if llm_interpretation:
@@ -59,6 +95,7 @@ class AnalysisOrchestrator:
                     message=plan_response.reasoning or "Session not found.",
                     errors=[plan_response.unsupported_reason or "Session not found."],
                     llm_interpretation=llm_interpretation,
+                    visual_reasoning=visual_reasoning,
                 )
             )
 
@@ -73,6 +110,7 @@ class AnalysisOrchestrator:
                     message=plan_response.reasoning or "No images available.",
                     errors=[plan_response.unsupported_reason or "No images available."],
                     llm_interpretation=llm_interpretation,
+                    visual_reasoning=visual_reasoning,
                 )
             )
 
@@ -87,6 +125,7 @@ class AnalysisOrchestrator:
                     message=plan_response.reasoning or "Unsupported query.",
                     errors=[plan_response.unsupported_reason or "Unsupported intent."],
                     llm_interpretation=llm_interpretation,
+                    visual_reasoning=visual_reasoning,
                 )
             )
 
@@ -94,11 +133,13 @@ class AnalysisOrchestrator:
         precheck = self._prevalidate(session_id, query, plan_response.required_images)
         if precheck is not None:
             precheck.llm_interpretation = llm_interpretation
+            precheck.visual_reasoning = visual_reasoning
             return OrchestrationResponse(execution=precheck)
 
         # 3. Execute the plan step by step.
         execution = self._execute_plan(session_id, query, plan_response)
         execution.llm_interpretation = llm_interpretation
+        execution.visual_reasoning = visual_reasoning
         return OrchestrationResponse(execution=execution)
 
     @staticmethod
@@ -364,6 +405,6 @@ class AnalysisOrchestrator:
 orchestrator = AnalysisOrchestrator()
 
 
-def orchestrate_analysis(session_id: str, query: str, use_llm: bool = True) -> OrchestrationResponse:
+def orchestrate_analysis(session_id: str, query: str, use_llm: bool = True, use_vision: bool = True) -> OrchestrationResponse:
     """Plan + execute a natural-language analysis query."""
-    return orchestrator.orchestrate(session_id, query, use_llm=use_llm)
+    return orchestrator.orchestrate(session_id, query, use_llm=use_llm, use_vision=use_vision)

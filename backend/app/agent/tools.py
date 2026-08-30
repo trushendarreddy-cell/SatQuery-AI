@@ -20,6 +20,7 @@ from app.pipeline.analysis import (
 )
 from app.pipeline.change_detection import run_change_detection
 from app.schemas.metadata_schema import ImageCategory
+from app.agent.vision import vision_service
 
 
 _TOOL_DEFINITIONS: List[ToolDefinition] = []
@@ -123,6 +124,30 @@ def calculate_area_tool(geojson: Dict[str, Any]) -> Dict[str, Any]:
     return {"success": result.success, "message": result.message, "area": result.model_dump(), "warnings": result.warnings}
 
 
+def analyze_image_visually_tool(session_id: str, image_id: str, query: str) -> Dict[str, Any]:
+    session = session_manager.get_session(session_id)
+    if not session or image_id not in session.images:
+        return {
+            "success": False,
+            "session_id": session_id,
+            "image_id": image_id,
+            "message": "Image not found in the session; visual reasoning cannot proceed.",
+            "visual": None,
+            "warnings": ["Image not found in session."],
+        }
+
+    metadata = session.images[image_id].model_dump()
+    result = vision_service.analyze(session_id, image_id, query, metadata=metadata)
+    return {
+        "success": result.supported,
+        "session_id": session_id,
+        "image_id": image_id,
+        "message": "Visual reasoning completed." if result.supported else "Visual reasoning unavailable.",
+        "visual": result.model_dump(exclude_none=True),
+        "warnings": result.warnings + result.limitations,
+    }
+
+
 def compute_spectral_index_tool(session_id: str, image_id: str, index_type: str = "ndvi", red_band: int = 3, nir_band: int = 4, blue_band: Optional[int] = None, green_band: Optional[int] = None, swir_band: Optional[int] = None, savi_l_factor: Optional[float] = 0.5) -> Dict[str, Any]:
     from app.schemas.analysis_schema import SpectralIndexType
     itype = SpectralIndexType(index_type.lower())
@@ -162,7 +187,18 @@ def invoke_agent_tool(payload: AgentToolCall) -> AgentToolResult:
         "mask_to_geojson": lambda: mask_to_geojson_tool(args.get("session_id", ""), args.get("image_id", ""), int(args.get("band_index", 1)), float(args.get("min_value", 1.0))),
         "calculate_spatial_statistics": lambda: calculate_spatial_statistics_tool(args.get("session_id", ""), args.get("image_id", ""), args.get("mask_image_id"), args.get("geometry"), args.get("band_index")),
         "calculate_area": lambda: calculate_area_tool(args.get("geojson", {})),
-        "compute_spectral_index": lambda: compute_spectral_index_tool(args.get("session_id", ""), args.get("image_id", ""), args.get("index_type", "ndvi"), int(args.get("red_band", 3)), int(args.get("nir_band", 4))),
+        "analyze_image_visually": lambda: analyze_image_visually_tool(args.get("session_id", ""), args.get("image_id", ""), args.get("query", "")),
+        "compute_spectral_index": lambda: compute_spectral_index_tool(
+            args.get("session_id", ""),
+            args.get("image_id", ""),
+            args.get("index_type", "ndvi"),
+            int(args.get("red_band", 3)),
+            int(args.get("nir_band", 4)),
+            args.get("blue_band"),
+            args.get("green_band"),
+            args.get("swir_band"),
+            args.get("savi_l_factor", 0.5),
+        ),
         "run_change_detection": lambda: run_change_detection_tool(args.get("session_id", ""), args.get("image_id_1", ""), args.get("image_id_2", ""), float(args.get("threshold", 0.1)), args.get("threshold_method", "relative_normalized"), args.get("band_index"), args.get("resampling_method", "bilinear")),
     }
     func = tool_map.get(name)
@@ -524,17 +560,50 @@ _register(
 )
 
 _register(
+    name="analyze_image_visually",
+    description="Performs a visual-only interpretation of a session image in response to the user's query, without computing geospatial metrics.",
+    purpose="Adds vision-aware evidence to the analytical conversation while leaving quantitative raster computations to the deterministic backend.",
+    input_schema={
+        "type": "object",
+        "properties": {
+            "session_id": {"type": "string", "description": "Active session identifier"},
+            "image_id": {"type": "string", "description": "Image identifier to inspect visually"},
+            "query": {"type": "string", "description": "User's image-based question or prompt"},
+        },
+        "required": ["session_id", "image_id", "query"],
+    },
+    output_schema={
+        "type": "object",
+        "properties": {
+            "success": {"type": "boolean"},
+            "session_id": {"type": "string"},
+            "image_id": {"type": "string"},
+            "message": {"type": "string"},
+            "visual": {"type": "object"},
+            "warnings": {"type": "array", "items": {"type": "string"}},
+        },
+        "required": ["success", "session_id", "image_id", "message"],
+    },
+    required=["session_id", "image_id", "query"],
+    failures=["Session not found", "Image missing", "Unsupported or invalid image context", "Vision provider unavailable"],
+)
+
+_register(
     name="compute_spectral_index",
-    description="Computes a spectral index raster (e.g., NDVI) from a multispectral GeoTIFF.",
+    description="Computes a spectral index raster (NDVI, EVI, NDWI, SAVI, NDBI) from a multispectral GeoTIFF.",
     purpose="Produces a georeferenced index raster and quantitative statistics for a single image. Band mapping is explicit and does not guess spectral identities.",
     input_schema={
         "type": "object",
         "properties": {
             "session_id": {"type": "string", "description": "Active session identifier"},
             "image_id": {"type": "string", "description": "Multispectral GeoTIFF identifier"},
-            "index_type": {"type": "string", "description": "Index to compute (currently ndvi)"},
+            "index_type": {"type": "string", "description": "Index to compute (ndvi, evi, ndwi, savi, ndbi)"},
             "red_band": {"type": "integer", "description": "1-based red band index"},
             "nir_band": {"type": "integer", "description": "1-based NIR band index"},
+            "blue_band": {"type": "integer", "description": "1-based blue band index (EVI)"},
+            "green_band": {"type": "integer", "description": "1-based green band index (NDWI)"},
+            "swir_band": {"type": "integer", "description": "1-based SWIR band index (NDBI)"},
+            "savi_l_factor": {"type": "number", "description": "Soil-adjusted vegetation index L factor (SAVI)"},
         },
         "required": ["session_id", "image_id"],
     },
