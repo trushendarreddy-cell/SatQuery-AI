@@ -372,10 +372,3 @@ The SatQuery backend is now a clean, stable infrastructure layer for your team's
 
 ---
 
-## Questions?
-
-Refer to:
-1. **MASTER_AGENT_INTEGRATION.md** — For "how do I integrate?"
-2. **M15_IMPLEMENTATION_SUMMARY.md** — For "what was built?"
-3. **tests/test_agent_integration.py** — For working examples
-4. **app/services/agent_context_service.py** — For API usage
