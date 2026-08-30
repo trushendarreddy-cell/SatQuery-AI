@@ -20,6 +20,14 @@ class Settings:
     LLM_MAX_TOKENS: int = int(os.getenv("LLM_MAX_TOKENS", "1024"))
     LLM_TEMPERATURE: float = float(os.getenv("LLM_TEMPERATURE", "0.0"))
 
+    # Vision provider configuration
+    VISION_PROVIDER: str = os.getenv("VISION_PROVIDER", "mock")
+    VISION_API_KEY: str = os.getenv("VISION_API_KEY", "")
+    VISION_MODEL: str = os.getenv("VISION_MODEL", "gpt-4o-mini")
+    VISION_BASE_URL: str = os.getenv("VISION_BASE_URL", "https://api.openai.com/v1")
+    VISION_MAX_TOKENS: int = int(os.getenv("VISION_MAX_TOKENS", "1024"))
+    VISION_TEMPERATURE: float = float(os.getenv("VISION_TEMPERATURE", "0.0"))
+
     def __init__(self):
         # Ensure working directories exist
         self.UPLOAD_DIR.mkdir(parents=True, exist_ok=True)

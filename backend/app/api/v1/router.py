@@ -1,5 +1,5 @@
 from fastapi import APIRouter
-from app.api.v1.endpoints import ingest, session, spatial, analysis, change_detection, query, agent, orchestration
+from app.api.v1.endpoints import ingest, session, spatial, analysis, change_detection, query, agent, orchestration, report
 
 api_router = APIRouter()
 
@@ -21,6 +21,7 @@ api_router.include_router(query.router, prefix="/query", tags=["Query Planning"]
 
 # Deterministic analysis orchestration (plan + execute)
 api_router.include_router(orchestration.router, prefix="/query", tags=["Query Planning"])
+api_router.include_router(report.router, prefix="/query", tags=["Query Planning"])
 
 # AI agent chat endpoint
 api_router.include_router(agent.router, prefix="/agent", tags=["AI Agent"])

@@ -11,7 +11,17 @@ import time
 from abc import ABC, abstractmethod
 from typing import Any, Dict, List, Optional
 
+import httpx
+
 from app.core.config import settings
+
+
+def _redact_secret(secret: Optional[str]) -> str:
+    if not secret:
+        return "[missing]"
+    if len(secret) <= 4:
+        return "*" * len(secret)
+    return f"{secret[:2]}{'*' * (len(secret) - 4)}{secret[-2:]}"
 
 
 class LLMProvider(ABC):
@@ -94,11 +104,6 @@ class OpenAICompatibleProvider(LLMProvider):
         return "openai-compatible"
 
     def chat(self, messages: List[Dict[str, Any]], tools: List[Dict[str, Any]]) -> Dict[str, Any]:
-        try:
-            import httpx
-        except ImportError:
-            raise RuntimeError("httpx is required for OpenAI-compatible providers.")
-
         if not self.api_key:
             raise RuntimeError("LLM API key is not configured.")
 
@@ -116,21 +121,33 @@ class OpenAICompatibleProvider(LLMProvider):
             payload["tools"] = tools
 
         try:
-            with httpx.Client(timeout=self.timeout) as client:
-                resp = client.post(
-                    f"{self.base_url}/chat/completions",
-                    headers=headers,
-                    json=payload,
-                )
+            try:
+                with httpx.Client(timeout=self.timeout) as client:
+                    resp = client.post(
+                        f"{self.base_url}/chat/completions",
+                        headers=headers,
+                        json=payload,
+                    )
+            except TypeError:
+                with httpx.Client() as client:
+                    resp = client.post(
+                        f"{self.base_url}/chat/completions",
+                        headers=headers,
+                        json=payload,
+                    )
             resp.raise_for_status()
             data = resp.json()
         except httpx.TimeoutException as exc:
-            raise RuntimeError(f"LLM provider timed out after {self.timeout}s: {exc}") from exc
+            raise RuntimeError(f"LLM provider timed out after {self.timeout}s.") from exc
+        except httpx.HTTPStatusError as exc:
+            raise RuntimeError("LLM provider returned an HTTP error.") from exc
         except httpx.HTTPError as exc:
-            raise RuntimeError(f"LLM provider HTTP error: {exc}") from exc
+            raise RuntimeError("LLM provider request failed.") from exc
 
         if "error" in data:
-            raise RuntimeError(f"LLM provider error: {data['error']}")
+            raise RuntimeError("LLM provider returned an error response.")
+        if not isinstance(data, dict):
+            raise RuntimeError("LLM provider returned an unexpected response format.")
         return data
 
 

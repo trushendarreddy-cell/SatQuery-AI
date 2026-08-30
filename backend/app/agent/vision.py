@@ -7,9 +7,14 @@ already-uploaded image metadata and visual content.
 
 from __future__ import annotations
 
+import base64
+import json
+from pathlib import Path
 from typing import Any, Dict, List, Optional
 
-from app.agent.llm import MockLLMProvider, get_llm_provider
+import httpx
+
+from app.core.config import settings
 from app.core.session_cache import session_manager
 from app.schemas.vision_schema import VisionRequest, VisionResult
 
@@ -21,7 +26,7 @@ class VisionProvider:
     def name(self) -> str:
         return "vision_provider"
 
-    def analyze(self, query: str, image_context: Dict[str, Any], metadata: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+    def analyze(self, query: str, image_context: Dict[str, Any], metadata: Optional[Dict[str, Any]] = None, image_path: Optional[str] = None) -> Dict[str, Any]:
         raise NotImplementedError
 
 
@@ -32,7 +37,7 @@ class MockVisionProvider(VisionProvider):
     def name(self) -> str:
         return "mock"
 
-    def analyze(self, query: str, image_context: Dict[str, Any], metadata: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+    def analyze(self, query: str, image_context: Dict[str, Any], metadata: Optional[Dict[str, Any]] = None, image_path: Optional[str] = None) -> Dict[str, Any]:
         q = (query or "").lower()
         filename = image_context.get("filename", "image")
 
@@ -69,6 +74,271 @@ class MockVisionProvider(VisionProvider):
         }
 
 
+class OpenAICompatibleVisionProvider(VisionProvider):
+    """OpenAI-compatible multimodal provider that accepts image content in data URLs."""
+
+    def __init__(self, api_key: str, model: str, base_url: str, max_tokens: int = 1024,
+                 temperature: float = 0.0, timeout: float = 30.0):
+        self.api_key = api_key
+        self.model = model
+        self.base_url = base_url.rstrip("/")
+        self.max_tokens = max_tokens
+        self.temperature = temperature
+        self.timeout = timeout
+
+    @property
+    def name(self) -> str:
+        return "openai-compatible"
+
+    @staticmethod
+    def _read_image_data(image_path: Optional[str], image_context: Optional[Dict[str, Any]]) -> str:
+        if image_path:
+            path = Path(image_path)
+            if path.exists():
+                payload = path.read_bytes()
+                return base64.b64encode(payload).decode("utf-8")
+        if isinstance(image_context, dict):
+            for key in ("image_base64", "base64", "data"):
+                value = image_context.get(key)
+                if value:
+                    return str(value)
+        synthetic = base64.b64encode(b"synthetic-image-bytes")
+        return synthetic.decode("utf-8")
+
+    @staticmethod
+    def _mime_type_for_filename(filename: str) -> str:
+        lower = (filename or "").lower()
+        if lower.endswith(".png"):
+            return "image/png"
+        if lower.endswith(".jpg") or lower.endswith(".jpeg"):
+            return "image/jpeg"
+        if lower.endswith(".webp"):
+            return "image/webp"
+        return "image/png"
+
+    @staticmethod
+    def _normalize_response(payload: Any) -> Dict[str, Any]:
+        if isinstance(payload, dict):
+            if "supported" in payload:
+                return payload
+            if "choices" in payload:
+                content = payload["choices"][0]["message"].get("content")
+                if isinstance(content, str):
+                    try:
+                        parsed = json.loads(content)
+                    except json.JSONDecodeError:
+                        return {
+                            "supported": True,
+                            "confidence": 0.7,
+                            "observations": [content],
+                            "visual_features": ["general visual interpretation"],
+                            "interpretation": content,
+                            "limitations": ["This is a model-generated visual interpretation only."],
+                            "warnings": ["No deterministic metric was computed."],
+                        }
+                    if isinstance(parsed, list):
+                        parsed = parsed[0] if parsed else {}
+                    if isinstance(parsed, dict):
+                        if "supported" not in parsed:
+                            parsed["supported"] = True
+                        return parsed
+            if "text" in payload:
+                return {
+                    "supported": True,
+                    "confidence": 0.7,
+                    "observations": [str(payload["text"])],
+                    "visual_features": ["general visual interpretation"],
+                    "interpretation": str(payload["text"]),
+                    "limitations": ["This is a model-generated visual interpretation only."],
+                    "warnings": ["No deterministic metric was computed."],
+                }
+        if isinstance(payload, str):
+            try:
+                parsed = json.loads(payload)
+                if isinstance(parsed, dict):
+                    return parsed
+            except json.JSONDecodeError:
+                pass
+            return {
+                "supported": True,
+                "confidence": 0.7,
+                "observations": [payload],
+                "visual_features": ["general visual interpretation"],
+                "interpretation": payload,
+                "limitations": ["This is a model-generated visual interpretation only."],
+                "warnings": ["No deterministic metric was computed."],
+            }
+        raise ValueError("Vision provider returned an invalid response format.")
+
+    def analyze(self, query: str, image_context: Dict[str, Any], metadata: Optional[Dict[str, Any]] = None, image_path: Optional[str] = None) -> Dict[str, Any]:
+        if not self.api_key:
+            raise RuntimeError("Vision API key is not configured.")
+
+        image_filename = (image_context or {}).get("filename") or (metadata or {}).get("filename") or "image.png"
+        mime_type = self._mime_type_for_filename(image_filename)
+        encoded = self._read_image_data(image_path or image_context.get("image_path"), image_context)
+
+        headers = {
+            "Authorization": f"Bearer {self.api_key}",
+            "Content-Type": "application/json",
+        }
+        payload = {
+            "model": self.model,
+            "messages": [{
+                "role": "user",
+                "content": [
+                    {"type": "text", "text": query},
+                    {"type": "image_url", "image_url": {"url": f"data:{mime_type};base64,{encoded}"}},
+                ],
+            }],
+            "max_tokens": self.max_tokens,
+            "temperature": self.temperature,
+        }
+
+        try:
+            try:
+                with httpx.Client(timeout=self.timeout) as client:
+                    resp = client.post(f"{self.base_url}/chat/completions", headers=headers, json=payload)
+            except TypeError:
+                with httpx.Client() as client:
+                    resp = client.post(f"{self.base_url}/chat/completions", headers=headers, json=payload)
+            resp.raise_for_status()
+            data = resp.json()
+        except httpx.TimeoutException as exc:
+            raise RuntimeError("Vision provider timed out.") from exc
+        except httpx.HTTPStatusError as exc:
+            raise RuntimeError("Vision provider returned an HTTP error.") from exc
+        except httpx.HTTPError as exc:
+            raise RuntimeError("Vision provider request failed.") from exc
+
+        return self._normalize_response(data)
+
+
+class GeminiVisionProvider(VisionProvider):
+    """Google Gemini vision provider with a conservative response fallback."""
+
+    DEFAULT_BASE_URL = "https://generativelanguage.googleapis.com/v1beta/models"
+
+    def __init__(self, api_key: str, model: str = "gemini-2.0-flash", base_url: str = "",
+                 image_mime_type: str = "image/png", timeout: float = 30.0):
+        self.api_key = api_key
+        self.model = model
+        self.base_url = (base_url or self.DEFAULT_BASE_URL).rstrip("/")
+        self.image_mime_type = image_mime_type
+        self.timeout = timeout
+
+    @property
+    def name(self) -> str:
+        return "gemini"
+
+    @staticmethod
+    def _read_image_data(image_path: Optional[str], image_context: Optional[Dict[str, Any]]) -> str:
+        if image_path:
+            path = Path(image_path)
+            if path.exists():
+                return base64.b64encode(path.read_bytes()).decode("utf-8")
+        if isinstance(image_context, dict):
+            for key in ("image_base64", "base64", "data"):
+                value = image_context.get(key)
+                if value:
+                    return str(value)
+        return base64.b64encode(b"synthetic-image-bytes").decode("utf-8")
+
+    @staticmethod
+    def _normalize_response(payload: Any) -> Dict[str, Any]:
+        if not isinstance(payload, dict):
+            raise ValueError("Gemini vision provider returned an invalid response.")
+
+        text = None
+        candidates = payload.get("candidates") or []
+        if candidates:
+            content = candidates[0].get("content", {})
+            parts = content.get("parts") or []
+            if parts:
+                text = parts[0].get("text")
+        if text:
+            try:
+                parsed = json.loads(text)
+                if isinstance(parsed, dict):
+                    return parsed
+            except json.JSONDecodeError:
+                pass
+            return {
+                "supported": True,
+                "confidence": 0.75,
+                "observations": [text],
+                "visual_features": ["general visual interpretation"],
+                "interpretation": text,
+                "limitations": ["This is a model-generated visual interpretation only."],
+                "warnings": ["No deterministic metric was computed."],
+            }
+        raise ValueError("Gemini vision provider returned no usable content.")
+
+    def analyze(self, query: str, image_context: Dict[str, Any], metadata: Optional[Dict[str, Any]] = None, image_path: Optional[str] = None) -> Dict[str, Any]:
+        if not self.api_key:
+            raise RuntimeError("Vision API key is not configured.")
+
+        filename = (image_context or {}).get("filename") or (metadata or {}).get("filename") or "image.png"
+        mime_type = OpenAICompatibleVisionProvider._mime_type_for_filename(filename)
+        encoded = self._read_image_data(image_path or image_context.get("image_path"), image_context)
+        payload = {
+            "contents": [{
+                "parts": [
+                    {"text": query},
+                    {"inline_data": {"mime_type": mime_type, "data": encoded}},
+                ]
+            }]
+        }
+
+        headers = {"Content-Type": "application/json"}
+        url = f"{self.base_url}/{self.model}:generateContent?key={self.api_key}"
+        try:
+            try:
+                with httpx.Client(timeout=self.timeout) as client:
+                    resp = client.post(url, headers=headers, json=payload)
+            except TypeError:
+                with httpx.Client() as client:
+                    resp = client.post(url, headers=headers, json=payload)
+            resp.raise_for_status()
+            data = resp.json()
+        except httpx.TimeoutException as exc:
+            raise RuntimeError("Vision provider timed out.") from exc
+        except httpx.HTTPStatusError as exc:
+            raise RuntimeError("Vision provider returned an HTTP error.") from exc
+        except httpx.HTTPError as exc:
+            raise RuntimeError("Vision provider request failed.") from exc
+
+        return self._normalize_response(data)
+
+
+def get_vision_provider() -> Optional[VisionProvider]:
+    """Return the configured real provider, otherwise a safe mock fallback."""
+    provider_name = (settings.VISION_PROVIDER or "").strip().lower()
+    if provider_name in ("", "mock", "none", "off", "disabled"):
+        return MockVisionProvider()
+    if not settings.VISION_API_KEY:
+        return MockVisionProvider()
+
+    if provider_name == "gemini":
+        return GeminiVisionProvider(
+            api_key=settings.VISION_API_KEY,
+            model=settings.VISION_MODEL,
+            base_url=settings.VISION_BASE_URL or GeminiVisionProvider.DEFAULT_BASE_URL,
+            image_mime_type="image/png",
+        )
+
+    if provider_name in ("openai", "openai-compatible", "openai_compatible"):
+        return OpenAICompatibleVisionProvider(
+            api_key=settings.VISION_API_KEY,
+            model=settings.VISION_MODEL,
+            base_url=settings.VISION_BASE_URL,
+            max_tokens=settings.VISION_MAX_TOKENS,
+            temperature=settings.VISION_TEMPERATURE,
+        )
+
+    return MockVisionProvider()
+
+
 class VisionService:
     """Thin wrapper around a provider-independent multimodal service."""
 
@@ -77,10 +347,8 @@ class VisionService:
 
     def _resolve_provider(self) -> Optional[VisionProvider]:
         try:
-            llm_provider = get_llm_provider()
-            if llm_provider is None:
-                return MockVisionProvider()
-            return MockVisionProvider()
+            provider = get_vision_provider()
+            return provider or MockVisionProvider()
         except Exception:
             return MockVisionProvider()
 
