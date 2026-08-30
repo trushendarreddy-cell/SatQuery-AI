@@ -1,4 +1,4 @@
-# SatQuery AI — Master Agent Integration Guide (M15)
+# SatQuery AI —  Integration Guide 
 
 **Date:** August 30, 2026  
 **Purpose:** Define stable contracts for integrating team's Master Agent with SatQuery backend  
