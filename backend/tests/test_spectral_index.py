@@ -454,3 +454,137 @@ def test_spectral_index_unit_ndwi_values():
         for p in (green_path, nir_path, out_path):
             if p.exists():
                 p.unlink()
+
+
+def test_api_spectral_index_savi(geotiff_date1_path):
+    """Test POST /api/v1/analysis/spectral-index with SAVI."""
+    sid, img_id = _upload(geotiff_date1_path)
+    res = client.post(
+        "/api/v1/analysis/spectral-index",
+        json={
+            "session_id": sid,
+            "image_id": img_id,
+            "index_type": "savi",
+            "red_band": 1,
+            "nir_band": 2,
+            "savi_l_factor": 0.5,
+        },
+    )
+    assert res.status_code == 200
+    data = res.json()
+    assert data["success"] is True
+    assert data["index_type"] == "savi"
+    assert data["savi_l_factor"] == 0.5
+    assert data["artifact_filename"].endswith(".tif")
+
+
+def test_api_spectral_index_ndbi(geotiff_date1_path):
+    """Test POST /api/v1/analysis/spectral-index with NDBI."""
+    sid, img_id = _upload(geotiff_date1_path)
+    res = client.post(
+        "/api/v1/analysis/spectral-index",
+        json={
+            "session_id": sid,
+            "image_id": img_id,
+            "index_type": "ndbi",
+            "swir_band": 3,
+            "nir_band": 2,
+        },
+    )
+    assert res.status_code == 200
+    data = res.json()
+    assert data["success"] is True
+    assert data["index_type"] == "ndbi"
+    assert data["swir_band"] == 3
+    assert data["artifact_filename"].endswith(".tif")
+
+
+def test_api_spectral_index_ndbi_missing_swir(geotiff_date1_path):
+    """Test POST /api/v1/analysis/spectral-index rejects NDBI without swir_band."""
+    sid, img_id = _upload(geotiff_date1_path)
+    res = client.post(
+        "/api/v1/analysis/spectral-index",
+        json={
+            "session_id": sid,
+            "image_id": img_id,
+            "index_type": "ndbi",
+            "red_band": 1,
+            "nir_band": 2,
+        },
+    )
+    assert res.status_code == 200
+    data = res.json()
+    assert data["success"] is False
+    assert "swir_band" in data["message"].lower()
+
+
+def test_spectral_index_unit_savi_values():
+    """Unit test: SAVI values are correct for known arrays."""
+    from app.geospatial.spectral_index import compute_savi
+    import rasterio
+    from rasterio.transform import from_origin
+
+    red = np.full((3, 3), 100, dtype=np.float32)
+    nir = np.full((3, 3), 500, dtype=np.float32)
+
+    transform = from_origin(0, 0, 1, 1)
+    crs = "EPSG:32643"
+
+    red_path = Path("test_savi_red.tif")
+    nir_path = Path("test_savi_nir.tif")
+    out_path = Path("test_savi.tif")
+
+    with rasterio.open(red_path, "w", driver="GTiff", height=3, width=3, count=1,
+                       dtype=rasterio.float32, crs=crs, transform=transform) as dst:
+        dst.write(red, 1)
+    with rasterio.open(nir_path, "w", driver="GTiff", height=3, width=3, count=1,
+                       dtype=rasterio.float32, crs=crs, transform=transform) as dst:
+        dst.write(nir, 1)
+
+    try:
+        result = compute_savi(red_path, nir_path, out_path, red_band=1, nir_band=1, l_factor=0.5)
+        expected = (1.0 + 0.5) * (500 - 100) / (500 + 100 + 0.5)
+        assert result["valid_pixel_count"] == 9
+        assert pytest.approx(result["min_value"]) == expected
+        assert pytest.approx(result["max_value"]) == expected
+        assert pytest.approx(result["mean_value"]) == expected
+    finally:
+        for p in (red_path, nir_path, out_path):
+            if p.exists():
+                p.unlink()
+
+
+def test_spectral_index_unit_ndbi_values():
+    """Unit test: NDBI values are correct for known arrays."""
+    from app.geospatial.spectral_index import compute_ndbi
+    import rasterio
+    from rasterio.transform import from_origin
+
+    swir = np.full((3, 3), 400, dtype=np.float32)
+    nir = np.full((3, 3), 100, dtype=np.float32)
+
+    transform = from_origin(0, 0, 1, 1)
+    crs = "EPSG:32643"
+
+    swir_path = Path("test_ndbi_swir.tif")
+    nir_path = Path("test_ndbi_nir.tif")
+    out_path = Path("test_ndbi.tif")
+
+    with rasterio.open(swir_path, "w", driver="GTiff", height=3, width=3, count=1,
+                       dtype=rasterio.float32, crs=crs, transform=transform) as dst:
+        dst.write(swir, 1)
+    with rasterio.open(nir_path, "w", driver="GTiff", height=3, width=3, count=1,
+                       dtype=rasterio.float32, crs=crs, transform=transform) as dst:
+        dst.write(nir, 1)
+
+    try:
+        result = compute_ndbi(swir_path, nir_path, out_path, swir_band=1, nir_band=1)
+        expected = (400 - 100) / (400 + 100)
+        assert result["valid_pixel_count"] == 9
+        assert pytest.approx(result["min_value"]) == expected
+        assert pytest.approx(result["max_value"]) == expected
+        assert pytest.approx(result["mean_value"]) == expected
+    finally:
+        for p in (swir_path, nir_path, out_path):
+            if p.exists():
+                p.unlink()

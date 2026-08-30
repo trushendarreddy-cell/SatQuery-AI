@@ -123,10 +123,10 @@ def calculate_area_tool(geojson: Dict[str, Any]) -> Dict[str, Any]:
     return {"success": result.success, "message": result.message, "area": result.model_dump(), "warnings": result.warnings}
 
 
-def compute_spectral_index_tool(session_id: str, image_id: str, index_type: str = "ndvi", red_band: int = 3, nir_band: int = 4, blue_band: Optional[int] = None, green_band: Optional[int] = None) -> Dict[str, Any]:
+def compute_spectral_index_tool(session_id: str, image_id: str, index_type: str = "ndvi", red_band: int = 3, nir_band: int = 4, blue_band: Optional[int] = None, green_band: Optional[int] = None, swir_band: Optional[int] = None, savi_l_factor: Optional[float] = 0.5) -> Dict[str, Any]:
     from app.schemas.analysis_schema import SpectralIndexType
     itype = SpectralIndexType(index_type.lower())
-    result = compute_spectral_index(session_id, image_id, itype, red_band, nir_band, blue_band, green_band)
+    result = compute_spectral_index(session_id, image_id, itype, red_band, nir_band, blue_band, green_band, swir_band, savi_l_factor)
     return {"success": result.success, "session_id": session_id, "message": result.message, "spectral_index": result.model_dump(), "warnings": result.warnings}
 
 

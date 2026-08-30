@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from typing import Any, Dict, List, Optional
 
-from app.agent.llm import get_llm_provider
+from app.agent.llm import MockLLMProvider, get_llm_provider
 from app.agent.schemas import AgentToolCall, AgentToolResult
 from app.agent.tools import invoke_agent_tool, get_tool_registry
 
@@ -13,7 +13,7 @@ class AgentService:
     """Deterministic agent service that uses LLM for intent interpretation and tool selection."""
 
     def __init__(self, provider=None):
-        self.provider = provider or get_llm_provider()
+        self.provider = provider or get_llm_provider() or MockLLMProvider()
 
     def _build_tool_schemas(self) -> List[Dict[str, Any]]:
         schemas = []

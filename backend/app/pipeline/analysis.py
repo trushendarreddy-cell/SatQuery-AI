@@ -9,7 +9,7 @@ from app.geospatial.cloud_mask import classify_cloud_shadow, write_class_mask
 from app.geospatial.seasonal import evaluate_seasonal_risk
 from app.geospatial.vectorize import polygonize_mask_file
 from app.geospatial.zonal import compute_zonal_statistics
-from app.geospatial.spectral_index import compute_ndvi, compute_evi, compute_ndwi
+from app.geospatial.spectral_index import compute_ndvi, compute_evi, compute_ndwi, compute_savi, compute_ndbi
 from app.pipeline.metadata import UniversalMetadataExtractor
 from app.schemas.analysis_schema import (
     AreaResult,
@@ -389,6 +389,8 @@ def compute_spectral_index(
     nir_band: int = 4,
     blue_band: Optional[int] = None,
     green_band: Optional[int] = None,
+    swir_band: Optional[int] = None,
+    savi_l_factor: Optional[float] = 0.5,
 ) -> SpectralIndexResult:
     """
     Computes a spectral index raster from a single multispectral GeoTIFF.
@@ -415,6 +417,8 @@ def compute_spectral_index(
             nir_band=nir_band,
             blue_band=blue_band,
             green_band=green_band,
+            swir_band=swir_band,
+            savi_l_factor=savi_l_factor,
             valid_pixel_count=0,
             nodata_pixel_count=0,
             min_value=None,
@@ -441,6 +445,8 @@ def compute_spectral_index(
             nir_band=nir_band,
             blue_band=blue_band,
             green_band=green_band,
+            swir_band=swir_band,
+            savi_l_factor=savi_l_factor,
             valid_pixel_count=0,
             nodata_pixel_count=0,
             min_value=None,
@@ -469,6 +475,8 @@ def compute_spectral_index(
                     nir_band=nir_band,
                     blue_band=blue_band,
                     green_band=green_band,
+                    swir_band=swir_band,
+                    savi_l_factor=savi_l_factor,
                     valid_pixel_count=0,
                     nodata_pixel_count=0,
                     min_value=None,
@@ -495,6 +503,8 @@ def compute_spectral_index(
                     nir_band=nir_band,
                     blue_band=blue_band,
                     green_band=green_band,
+                    swir_band=swir_band,
+                    savi_l_factor=savi_l_factor,
                     valid_pixel_count=0,
                     nodata_pixel_count=0,
                     min_value=None,
@@ -521,6 +531,8 @@ def compute_spectral_index(
                     nir_band=nir_band,
                     blue_band=blue_band,
                     green_band=green_band,
+                    swir_band=swir_band,
+                    savi_l_factor=savi_l_factor,
                     valid_pixel_count=0,
                     nodata_pixel_count=0,
                     min_value=None,
@@ -559,6 +571,8 @@ def compute_spectral_index(
                     nir_band=nir_band,
                     blue_band=blue_band,
                     green_band=green_band,
+                    swir_band=swir_band,
+                    savi_l_factor=savi_l_factor,
                     valid_pixel_count=0,
                     nodata_pixel_count=0,
                     min_value=None,
@@ -596,6 +610,8 @@ def compute_spectral_index(
                     nir_band=nir_band,
                     blue_band=blue_band,
                     green_band=green_band,
+                    swir_band=swir_band,
+                    savi_l_factor=savi_l_factor,
                     valid_pixel_count=0,
                     nodata_pixel_count=0,
                     min_value=None,
@@ -611,6 +627,54 @@ def compute_spectral_index(
                 nir_path=path,
                 output_path=index_path,
                 green_band=green_band,
+                nir_band=nir_band,
+            )
+        elif index_type == SpectralIndexType.SAVI:
+            index_filename = f"savi_{image_id}_{index_uuid}.tif"
+            index_path = session.session_dir / index_filename
+            result = compute_savi(
+                red_path=path,
+                nir_path=path,
+                output_path=index_path,
+                red_band=red_band,
+                nir_band=nir_band,
+                l_factor=savi_l_factor or 0.5,
+            )
+        elif index_type == SpectralIndexType.NDBI:
+            if swir_band is None:
+                return SpectralIndexResult(
+                    success=False,
+                    session_id=session_id,
+                    image_id=image_id,
+                    index_type=index_type.value,
+                    index_image_id="",
+                    artifact_filename="",
+                    width=0,
+                    height=0,
+                    band_count=1,
+                    crs="",
+                    transform=[0, 1, 0, 0, 0, 1],
+                    red_band=red_band,
+                    nir_band=nir_band,
+                    blue_band=blue_band,
+                    green_band=green_band,
+                    swir_band=swir_band,
+                    savi_l_factor=savi_l_factor,
+                    valid_pixel_count=0,
+                    nodata_pixel_count=0,
+                    min_value=None,
+                    max_value=None,
+                    mean_value=None,
+                    message="NDBI requires swir_band.",
+                    warnings=["swir_band is required for NDBI computation."],
+                )
+            index_filename = f"ndbi_{image_id}_{index_uuid}.tif"
+            index_path = session.session_dir / index_filename
+            result = compute_ndbi(
+                swir_path=path,
+                nir_path=path,
+                output_path=index_path,
+                swir_band=swir_band,
                 nir_band=nir_band,
             )
         else:
@@ -663,6 +727,8 @@ def compute_spectral_index(
             nir_band=result.get("nir_band", nir_band),
             blue_band=result.get("blue_band", blue_band),
             green_band=result.get("green_band", green_band),
+            swir_band=result.get("swir_band", swir_band),
+            savi_l_factor=result.get("savi_l_factor", savi_l_factor),
             valid_pixel_count=result["valid_pixel_count"],
             nodata_pixel_count=result["nodata_pixel_count"],
             min_value=result["min_value"],
@@ -690,6 +756,8 @@ def compute_spectral_index(
             nir_band=nir_band,
             blue_band=blue_band,
             green_band=green_band,
+            swir_band=swir_band,
+            savi_l_factor=savi_l_factor,
             valid_pixel_count=0,
             nodata_pixel_count=0,
             min_value=None,

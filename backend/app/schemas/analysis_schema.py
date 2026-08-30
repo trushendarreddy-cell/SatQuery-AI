@@ -140,6 +140,8 @@ class SpectralIndexType(str, Enum):
     NDVI = "ndvi"
     EVI = "evi"
     NDWI = "ndwi"
+    SAVI = "savi"
+    NDBI = "ndbi"
 
 
 class SpectralIndexRequest(BaseModel):
@@ -150,6 +152,8 @@ class SpectralIndexRequest(BaseModel):
     nir_band: int = Field(4, description="1-based NIR band index")
     blue_band: Optional[int] = Field(None, description="1-based blue band index (required for EVI)")
     green_band: Optional[int] = Field(None, description="1-based green band index (required for NDWI)")
+    swir_band: Optional[int] = Field(None, description="1-based SWIR band index (required for NDBI)")
+    savi_l_factor: Optional[float] = Field(0.5, description="L factor for SAVI (soil brightness correction)")
 
 
 class SpectralIndexResult(BaseModel):
@@ -168,6 +172,8 @@ class SpectralIndexResult(BaseModel):
     nir_band: int = Field(..., description="NIR band index used")
     blue_band: Optional[int] = Field(None, description="Blue band index used (EVI)")
     green_band: Optional[int] = Field(None, description="Green band index used (NDWI)")
+    swir_band: Optional[int] = Field(None, description="SWIR band index used (NDBI)")
+    savi_l_factor: Optional[float] = Field(None, description="L factor used for SAVI")
     valid_pixel_count: int = Field(..., description="Pixels with valid spectral data")
     nodata_pixel_count: int = Field(..., description="Pixels excluded as NoData")
     min_value: Optional[float] = Field(None, description="Minimum index value")

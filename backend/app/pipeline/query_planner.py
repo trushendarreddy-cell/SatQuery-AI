@@ -3,6 +3,7 @@ from typing import List, Optional, Dict, Any, Tuple
 
 from app.core.session_cache import session_manager
 from app.schemas.query_schema import QueryIntent, QueryStatus, QueryPlan, QueryResponse
+from app.schemas.query_intelligence_schema import AnalysisType
 from app.schemas.metadata_schema import ImageCategory
 
 
@@ -27,7 +28,7 @@ class QueryPlanner:
     }
 
     @classmethod
-    def analyze(cls, session_id: str, query: str) -> QueryResponse:
+    def analyze(cls, session_id: str, query: str, intent_hint: Optional[QueryIntent] = None) -> QueryResponse:
         session = session_manager.get_session(session_id)
         if not session:
             return QueryResponse(
@@ -54,7 +55,7 @@ class QueryPlanner:
                 unsupported_reason="No images available in session.",
             )
 
-        intent = cls._detect_intent(query, images)
+        intent = intent_hint or cls._detect_intent(query, images)
         plan, required_images, reasoning = cls._build_plan(intent, query, images)
 
         if intent in cls._UNSUPPORTED_INTENTS:
@@ -98,7 +99,7 @@ class QueryPlanner:
             return QueryIntent.BEFORE_AFTER_ANALYSIS
         if re.search(r'\b(change|detect|difference|differ|changed)\b', q) and has_two:
             return QueryIntent.CHANGE_DETECTION
-        if re.search(r'\b(vegetation|ndvi|green|biomass|crop|health)\b', q) and has_any:
+        if re.search(r'\b(vegetation|ndvi|ndbi|savi|evi|green|biomass|crop|health)\b', q) and has_any:
             return QueryIntent.VEGETATION_ANALYSIS
         if re.search(r'\b(compare|comparison|versus|vs)\b', q) and has_two:
             return QueryIntent.IMAGE_COMPARISON
@@ -144,34 +145,37 @@ class QueryPlanner:
             return plan, [target], f"Assessing cloud/shadow coverage for georeferenced image '{target}'."
 
         if intent == QueryIntent.SPATIAL_OVERLAP:
-            if len(geo_ids) < 2:
+            pair_ids = image_ids if len(image_ids) == 2 else geo_ids
+            if len(pair_ids) < 2:
                 plan = []
-                return plan, geo_ids, "Need at least two georeferenced images to assess overlap."
+                return plan, pair_ids, "Need at least two images to assess overlap."
             plan = [
-                QueryPlan(tool_name="check_spatial_overlap", arguments={"session_id": "", "image_id_1": geo_ids[0], "image_id_2": geo_ids[1]}),
+                QueryPlan(tool_name="check_spatial_overlap", arguments={"session_id": "", "image_id_1": pair_ids[0], "image_id_2": pair_ids[1]}),
             ]
-            return plan, geo_ids[:2], "Computing spatial overlap and intersection between two georeferenced scenes."
+            return plan, pair_ids[:2], "Computing spatial overlap and intersection between two scenes."
 
         if intent == QueryIntent.IMAGE_COMPARISON:
-            if len(geo_ids) < 2:
+            pair_ids = image_ids if len(image_ids) == 2 else geo_ids
+            if len(pair_ids) < 2:
                 plan = []
-                return plan, geo_ids, "Need at least two georeferenced images for comparison."
+                return plan, pair_ids, "Need at least two images for comparison."
             plan = [
-                QueryPlan(tool_name="check_spatial_overlap", arguments={"session_id": "", "image_id_1": geo_ids[0], "image_id_2": geo_ids[1]}),
-                QueryPlan(tool_name="check_compatibility", arguments={"session_id": "", "image_id_1": geo_ids[0], "image_id_2": geo_ids[1]}),
+                QueryPlan(tool_name="check_spatial_overlap", arguments={"session_id": "", "image_id_1": pair_ids[0], "image_id_2": pair_ids[1]}),
+                QueryPlan(tool_name="check_compatibility", arguments={"session_id": "", "image_id_1": pair_ids[0], "image_id_2": pair_ids[1]}),
             ]
-            return plan, geo_ids[:2], "Comparing two georeferenced scenes for overlap and compatibility."
+            return plan, pair_ids[:2], "Comparing two scenes for overlap and compatibility."
 
         if intent == QueryIntent.BEFORE_AFTER_ANALYSIS:
-            if len(geo_ids) < 2:
+            pair_ids = image_ids if len(image_ids) == 2 else geo_ids
+            if len(pair_ids) < 2:
                 plan = []
-                return plan, geo_ids, "Need at least two georeferenced images for before/after analysis."
+                return plan, pair_ids, "Need at least two images for before/after analysis."
             plan = [
-                QueryPlan(tool_name="check_spatial_overlap", arguments={"session_id": "", "image_id_1": geo_ids[0], "image_id_2": geo_ids[1]}),
-                QueryPlan(tool_name="check_compatibility", arguments={"session_id": "", "image_id_1": geo_ids[0], "image_id_2": geo_ids[1]}),
-                QueryPlan(tool_name="apply_seasonal_filter", arguments={"session_id": "", "image_id_1": geo_ids[0], "image_id_2": geo_ids[1]}),
+                QueryPlan(tool_name="check_spatial_overlap", arguments={"session_id": "", "image_id_1": pair_ids[0], "image_id_2": pair_ids[1]}),
+                QueryPlan(tool_name="check_compatibility", arguments={"session_id": "", "image_id_1": pair_ids[0], "image_id_2": pair_ids[1]}),
+                QueryPlan(tool_name="apply_seasonal_filter", arguments={"session_id": "", "image_id_1": pair_ids[0], "image_id_2": pair_ids[1]}),
             ]
-            return plan, geo_ids[:2], "Running before/after analysis: overlap, compatibility, and seasonal risk assessment."
+            return plan, pair_ids[:2], "Running before/after analysis: overlap, compatibility, and seasonal risk assessment."
 
         if intent == QueryIntent.AREA_CALCULATION:
             if not geo_ids:
@@ -184,25 +188,33 @@ class QueryPlanner:
             return plan, [geo_ids[0]], "Vectorizing mask and calculating geodesic area for the first georeferenced image."
 
         if intent == QueryIntent.CHANGE_DETECTION:
-            if len(geo_ids) < 2:
+            pair_ids = image_ids if len(image_ids) == 2 else geo_ids
+            if len(pair_ids) < 2:
                 plan = []
-                return plan, geo_ids, "Need at least two georeferenced images for change detection."
+                return plan, pair_ids, "Need at least two images for change detection."
             plan = [
-                QueryPlan(tool_name="check_spatial_overlap", arguments={"session_id": "", "image_id_1": geo_ids[0], "image_id_2": geo_ids[1]}),
-                QueryPlan(tool_name="check_compatibility", arguments={"session_id": "", "image_id_1": geo_ids[0], "image_id_2": geo_ids[1]}),
-                QueryPlan(tool_name="run_change_detection", arguments={"session_id": "", "image_id_1": geo_ids[0], "image_id_2": geo_ids[1], "threshold": 0.1, "threshold_method": "relative_normalized"}),
+                QueryPlan(tool_name="check_spatial_overlap", arguments={"session_id": "", "image_id_1": pair_ids[0], "image_id_2": pair_ids[1]}),
+                QueryPlan(tool_name="check_compatibility", arguments={"session_id": "", "image_id_1": pair_ids[0], "image_id_2": pair_ids[1]}),
+                QueryPlan(tool_name="run_change_detection", arguments={"session_id": "", "image_id_1": pair_ids[0], "image_id_2": pair_ids[1], "threshold": 0.1, "threshold_method": "relative_normalized"}),
             ]
-            return plan, geo_ids[:2], "Running pixel/spectral change detection between two georeferenced scenes on a common grid."
+            return plan, pair_ids[:2], "Running pixel/spectral change detection between two scenes on a common grid."
 
         if intent == QueryIntent.VEGETATION_ANALYSIS:
             if not geo_ids:
                 plan = []
                 return plan, [], "No georeferenced images available for vegetation analysis."
-            target = geo_ids[0]
-            plan = [
-                QueryPlan(tool_name="compute_spectral_index", arguments={"session_id": "", "image_id": target, "index_type": "ndvi", "red_band": 3, "nir_band": 4}),
-            ]
-            return plan, [target], "Computing NDVI vegetation index for the first georeferenced image."
+            q_lower = query.lower()
+            if "savi" in q_lower:
+                index_type = "savi"
+                args = {"session_id": "", "image_id": geo_ids[0], "index_type": index_type, "red_band": 3, "nir_band": 4, "savi_l_factor": 0.5}
+            elif "ndbi" in q_lower:
+                index_type = "ndbi"
+                args = {"session_id": "", "image_id": geo_ids[0], "index_type": index_type, "swir_band": 3, "nir_band": 4}
+            else:
+                index_type = "ndvi"
+                args = {"session_id": "", "image_id": geo_ids[0], "index_type": index_type, "red_band": 3, "nir_band": 4}
+            plan = [QueryPlan(tool_name="compute_spectral_index", arguments=args)]
+            return plan, [geo_ids[0]], f"Computing {index_type.upper()} index for the first georeferenced image."
 
         plan = []
         return plan, image_ids, "Unable to determine a specific analysis plan for this query."

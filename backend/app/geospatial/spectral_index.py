@@ -195,3 +195,75 @@ def compute_ndwi(
             **stats,
             "message": f"NDWI computed using green band {green_band} and NIR band {nir_band}.",
         }
+
+
+def compute_savi(
+    red_path: Path,
+    nir_path: Path,
+    output_path: Path,
+    red_band: int = 3,
+    nir_band: int = 4,
+    l_factor: float = 0.5,
+) -> dict:
+    with rasterio.open(red_path) as red_src, rasterio.open(nir_path) as nir_src:
+        _validate_grid(red_src, nir_src)
+        red = _read_band(red_src, red_band, "Red")
+        nir = _read_band(nir_src, nir_band, "NIR")
+        nodata_red = red_src.nodatavals[red_band - 1]
+        nodata_nir = nir_src.nodatavals[nir_band - 1]
+        valid = np.ones(red.shape, dtype=bool)
+        if nodata_red is not None:
+            valid &= red != nodata_red
+        if nodata_nir is not None:
+            valid &= nir != nodata_nir
+        denom = nir + red + l_factor
+        savi = _safe_divide((1.0 + l_factor) * (nir - red), denom, valid)
+        stats = _compute_stats(savi, valid)
+        _write_float32_geotiff(output_path, savi, red_src.profile)
+        return {
+            "output_path": str(output_path),
+            "crs": red_src.crs.to_string() if red_src.crs else "",
+            "transform": [
+                float(red_src.transform.c), float(red_src.transform.a), float(red_src.transform.b),
+                float(red_src.transform.d), float(red_src.transform.e), float(red_src.transform.f),
+            ],
+            "width": int(red_src.width), "height": int(red_src.height),
+            "red_band": red_band, "nir_band": nir_band, "savi_l_factor": l_factor,
+            **stats,
+            "message": f"SAVI computed using red band {red_band}, NIR band {nir_band}, and L factor {l_factor}.",
+        }
+
+
+def compute_ndbi(
+    swir_path: Path,
+    nir_path: Path,
+    output_path: Path,
+    swir_band: int = 5,
+    nir_band: int = 4,
+) -> dict:
+    with rasterio.open(swir_path) as swir_src, rasterio.open(nir_path) as nir_src:
+        _validate_grid(swir_src, nir_src)
+        swir = _read_band(swir_src, swir_band, "SWIR")
+        nir = _read_band(nir_src, nir_band, "NIR")
+        nodata_swir = swir_src.nodatavals[swir_band - 1]
+        nodata_nir = nir_src.nodatavals[nir_band - 1]
+        valid = np.ones(swir.shape, dtype=bool)
+        if nodata_swir is not None:
+            valid &= swir != nodata_swir
+        if nodata_nir is not None:
+            valid &= nir != nodata_nir
+        ndbi = _safe_divide(swir - nir, swir + nir, valid)
+        stats = _compute_stats(ndbi, valid)
+        _write_float32_geotiff(output_path, ndbi, swir_src.profile)
+        return {
+            "output_path": str(output_path),
+            "crs": swir_src.crs.to_string() if swir_src.crs else "",
+            "transform": [
+                float(swir_src.transform.c), float(swir_src.transform.a), float(swir_src.transform.b),
+                float(swir_src.transform.d), float(swir_src.transform.e), float(swir_src.transform.f),
+            ],
+            "width": int(swir_src.width), "height": int(swir_src.height),
+            "swir_band": swir_band, "nir_band": nir_band,
+            **stats,
+            "message": f"NDBI computed using SWIR band {swir_band} and NIR band {nir_band}.",
+        }
