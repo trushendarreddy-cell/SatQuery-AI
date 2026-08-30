@@ -19,9 +19,10 @@ app = FastAPI(
 )
 
 # Enable Cross-Origin Resource Sharing (CORS) for seamless frontend integration
+allowed_origins = settings.CORS_ALLOWED_ORIGINS
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],  # Adjust allowed origins in production
+    allow_origins=allowed_origins if allowed_origins != ["*"] else ["*"],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -44,15 +45,17 @@ async def validation_exception_handler(request: Request, exc: RequestValidationE
 
 @app.exception_handler(Exception)
 async def generic_exception_handler(request: Request, exc: Exception):
-    """Return consistent JSON for unhandled exceptions."""
+    """Return consistent JSON for unhandled exceptions without leaking internals in production."""
+    payload = {
+        "success": False,
+        "error": "internal_server_error",
+        "message": "An unexpected error occurred.",
+    }
+    if settings.DEBUG:
+        payload["details"] = str(exc)
     return JSONResponse(
         status_code=500,
-        content={
-            "success": False,
-            "error": "internal_server_error",
-            "message": "An unexpected error occurred.",
-            "details": str(exc),
-        },
+        content=payload,
     )
 
 
@@ -100,5 +103,20 @@ async def root():
 
 @app.get("/health", tags=["Health & Info"])
 async def health_check():
-    """Health check probe endpoint."""
+    """Lightweight health probe endpoint."""
     return {"status": "healthy"}
+
+
+@app.get("/ready", tags=["Health & Info"])
+async def readiness_check():
+    """Readiness endpoint confirming the app can accept requests and managed storage is available."""
+    return {
+        "status": "ready",
+        "service": settings.PROJECT_NAME,
+        "version": settings.VERSION,
+        "health": "healthy",
+        "storage": {
+            "upload_dir": str(settings.UPLOAD_DIR),
+            "cache_dir": str(settings.CACHE_DIR),
+        },
+    }

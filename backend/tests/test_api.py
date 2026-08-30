@@ -21,6 +21,40 @@ def test_health_endpoint():
     assert response.json() == {"status": "healthy"}
 
 
+def test_ready_endpoint():
+    """Test readiness endpoint and app-level health contract."""
+    response = client.get("/ready")
+    assert response.status_code == 200
+    data = response.json()
+    assert data["status"] == "ready"
+    assert data["service"] == "SatQuery AI Backend"
+    assert data["storage"]["upload_dir"]
+    assert data["storage"]["cache_dir"]
+
+
+def test_session_artifact_download_and_path_guard():
+    """Artifact download should stay inside the session directory and reject traversal attempts."""
+    from app.core.session_cache import session_manager
+
+    session = session_manager.get_or_create_session("artifact_guard")
+    safe_file = session.session_dir / "sample.txt"
+    safe_file.write_text("artifact-contents", encoding="utf-8")
+    session.file_paths["artifact-1"] = safe_file
+
+    response = client.get(f"/api/v1/session/{session.session_id}/artifacts")
+    assert response.status_code == 200
+    payload = response.json()
+    assert len(payload["artifacts"]) >= 1
+    assert payload["artifacts"][0]["filename"] == "sample.txt"
+
+    download = client.get(f"/api/v1/session/{session.session_id}/artifacts/sample.txt")
+    assert download.status_code == 200
+    assert download.content == b"artifact-contents"
+
+    blocked = client.get(f"/api/v1/session/{session.session_id}/artifacts/../sample.txt")
+    assert blocked.status_code in {400, 403, 404}
+
+
 def test_inspect_endpoint_geotiff(valid_geotiff_path):
     """Test POST /api/v1/ingest/inspect with a valid GeoTIFF upload."""
     with open(valid_geotiff_path, "rb") as f:

@@ -6,11 +6,25 @@ class Settings:
     PROJECT_NAME: str = "SatQuery AI Backend"
     VERSION: str = "0.1.0"
     API_V1_PREFIX: str = "/api/v1"
-    
+    DEBUG: bool = os.getenv("DEBUG", "false").strip().lower() in {"1", "true", "yes", "on"}
+
     # Base directories
     BASE_DIR: Path = Path(__file__).resolve().parent.parent.parent
     UPLOAD_DIR: Path = BASE_DIR / "temp" / "uploads"
     CACHE_DIR: Path = BASE_DIR / "temp" / "cache"
+    STORAGE_ROOT: Path = BASE_DIR / "temp" / "storage"
+
+    # CORS / security configuration
+    CORS_ALLOWED_ORIGINS: list[str] = [
+        origin.strip() for origin in os.getenv("CORS_ALLOWED_ORIGINS", "*").split(",") if origin.strip()
+    ]
+    MAX_UPLOAD_SIZE_BYTES: int = int(os.getenv("MAX_UPLOAD_SIZE_BYTES", str(50 * 1024 * 1024)))
+
+    # Database configuration
+    DATABASE_URL: str = os.getenv(
+        "DATABASE_URL",
+        "sqlite:///" + (BASE_DIR / "temp" / "satquery.db").resolve().as_posix(),
+    )
 
     # LLM provider configuration
     LLM_PROVIDER: str = os.getenv("LLM_PROVIDER", "openai")
@@ -32,6 +46,7 @@ class Settings:
         # Ensure working directories exist
         self.UPLOAD_DIR.mkdir(parents=True, exist_ok=True)
         self.CACHE_DIR.mkdir(parents=True, exist_ok=True)
+        self.STORAGE_ROOT.mkdir(parents=True, exist_ok=True)
 
 
 settings = Settings()

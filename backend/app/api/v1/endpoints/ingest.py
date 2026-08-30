@@ -6,6 +6,7 @@ from fastapi import APIRouter, File, UploadFile, Form, status  # type: ignore[im
 from starlette.responses import JSONResponse # pyright: ignore[reportMissingImports]
 
 from app.core.config import settings
+from app.core.path_utils import safe_filename
 from app.core.session_cache import session_manager
 from app.schemas.metadata_schema import (
     InspectResponse,
@@ -18,6 +19,23 @@ from app.pipeline.metadata import UniversalMetadataExtractor
 from app.pipeline.scene_classifier import SceneClassifier
 
 router = APIRouter()
+
+
+def _limit_file_size(file: UploadFile, max_size_bytes: int) -> None:
+    """Reject payloads that exceed the configured maximum upload size."""
+    if not max_size_bytes:
+        return
+    if file.size and file.size > max_size_bytes:
+        raise ValueError(f"File exceeds the {max_size_bytes} byte upload limit.")
+
+    # The upload object may not expose size in all clients; fall back to streaming validation.
+    if file.file is None:
+        return
+    file.file.seek(0, 2)
+    end = file.file.tell()
+    file.file.seek(0)
+    if end > max_size_bytes:
+        raise ValueError(f"File exceeds the {max_size_bytes} byte upload limit.")
 
 
 @router.post(
@@ -36,9 +54,28 @@ async def inspect_image(file: UploadFile = File(...)):
     - GeoTIFF path: Validates CRS, extracts WGS84 bounds, resolution, and band stats.
     - JPG/PNG path: Validates visual readability, dimensions, and channels without fabricating geospatial metadata.
     """
+    try:
+        _limit_file_size(file, settings.MAX_UPLOAD_SIZE_BYTES)
+    except ValueError as exc:
+        return JSONResponse(
+            status_code=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE,
+            content=InspectResponse(
+                success=False,
+                message=str(exc),
+                validation=ValidationResult(
+                    is_valid=False,
+                    category=ImageCategory.VISUAL_STANDARD,
+                    errors=[str(exc)],
+                    warnings=[],
+                ),
+                metadata=None,
+            ).model_dump(),
+        )
+
     image_uuid = uuid.uuid4().hex[:8]
-    safe_filename = f"{image_uuid}_{file.filename}"
-    temp_file_path = settings.UPLOAD_DIR / safe_filename
+    safe_name = safe_filename(file.filename or f"upload_{image_uuid}")
+    disk_name = f"{image_uuid}_{safe_name}"
+    temp_file_path = settings.UPLOAD_DIR / disk_name
 
     try:
         with open(temp_file_path, "wb") as buffer:
@@ -112,9 +149,15 @@ async def upload_images_to_session(
     active_session_id = session.session_id
 
     for file in files:
+        try:
+            _limit_file_size(file, settings.MAX_UPLOAD_SIZE_BYTES)
+        except ValueError as exc:
+            continue
+
         image_uuid = uuid.uuid4().hex[:8]
-        safe_filename = f"{image_uuid}_{file.filename}"
-        temp_file_path = session.session_dir / safe_filename
+        safe_name = safe_filename(file.filename or f"upload_{image_uuid}")
+        disk_name = f"{image_uuid}_{safe_name}"
+        temp_file_path = session.session_dir / disk_name
 
         try:
             with open(temp_file_path, "wb") as buffer:
@@ -174,9 +217,15 @@ async def upload_image_pair(
     active_session_id = session.session_id
 
     for file in [file_1, file_2]:
+        try:
+            _limit_file_size(file, settings.MAX_UPLOAD_SIZE_BYTES)
+        except ValueError:
+            continue
+
         image_uuid = uuid.uuid4().hex[:8]
-        safe_filename = f"{image_uuid}_{file.filename}"
-        temp_file_path = session.session_dir / safe_filename
+        safe_name = safe_filename(file.filename or f"upload_{image_uuid}")
+        disk_name = f"{image_uuid}_{safe_name}"
+        temp_file_path = session.session_dir / disk_name
 
         try:
             with open(temp_file_path, "wb") as buffer:

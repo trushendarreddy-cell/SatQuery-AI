@@ -23,6 +23,8 @@ def safe_path(base_dir: Path, filename: str) -> Path:
     safe_name = safe_filename(filename)
     resolved = (base_dir / safe_name).resolve()
     base_resolved = base_dir.resolve()
-    if not str(resolved).startswith(str(base_resolved)):
-        raise ValueError(f"Path traversal detected: {filename}")
+    try:
+        resolved.relative_to(base_resolved)
+    except ValueError as exc:
+        raise ValueError(f"Path traversal detected: {filename}") from exc
     return resolved
