@@ -107,12 +107,10 @@ class QueryPlanner:
             return QueryIntent.METADATA_QUESTION
         if re.search(r'\b(multi|multiple|all|batch|collection)\b', q) and len(images) >= 3:
             return QueryIntent.MULTI_IMAGE_ANALYSIS
-        if re.search(r'\b(inspect|look|show|display|view|what|check)\b', q) and has_any:
+        if re.search(r'\b(inspect|look|show|display|view|describe|visible|what\s+(do\s+you\s+see|is\s+visible|is\s+in\s+this\s+image|is\s+in\s+this\s+picture)|what.*(image|picture)|scene|check)\b', q) and has_any:
             return QueryIntent.IMAGE_INSPECTION
         if has_two:
             return QueryIntent.IMAGE_COMPARISON
-        if has_any:
-            return QueryIntent.IMAGE_INSPECTION
         return QueryIntent.UNSUPPORTED
 
     @classmethod
@@ -204,15 +202,23 @@ class QueryPlanner:
                 plan = []
                 return plan, [], "No georeferenced images available for vegetation analysis."
             q_lower = query.lower()
+            source = next((img for img in images if img.image_id == geo_ids[0]), None)
+            channel_count = getattr(source, "channels", 0) or 0
+            if channel_count >= 2:
+                default_red = 1
+                default_nir = 2
+            else:
+                default_red = 3
+                default_nir = 4
             if "savi" in q_lower:
                 index_type = "savi"
-                args = {"session_id": "", "image_id": geo_ids[0], "index_type": index_type, "red_band": 3, "nir_band": 4, "savi_l_factor": 0.5}
+                args = {"session_id": "", "image_id": geo_ids[0], "index_type": index_type, "red_band": default_red, "nir_band": default_nir, "savi_l_factor": 0.5}
             elif "ndbi" in q_lower:
                 index_type = "ndbi"
-                args = {"session_id": "", "image_id": geo_ids[0], "index_type": index_type, "swir_band": 3, "nir_band": 4}
+                args = {"session_id": "", "image_id": geo_ids[0], "index_type": index_type, "swir_band": max(1, min(3, channel_count or 3)), "nir_band": default_nir}
             else:
                 index_type = "ndvi"
-                args = {"session_id": "", "image_id": geo_ids[0], "index_type": index_type, "red_band": 3, "nir_band": 4}
+                args = {"session_id": "", "image_id": geo_ids[0], "index_type": index_type, "red_band": default_red, "nir_band": default_nir}
             plan = [QueryPlan(tool_name="compute_spectral_index", arguments=args)]
             return plan, [geo_ids[0]], f"Computing {index_type.upper()} index for the first georeferenced image."
 

@@ -140,6 +140,15 @@ def test_query_analyze_empty_session():
     assert data["status"] == QueryStatus.NEEDS_MORE_IMAGES
 
 
+def test_query_analyze_unsupported_request(valid_geotiff_path):
+    _setup("q_unsupported", [valid_geotiff_path])
+    res = client.post("/api/v1/query/analyze", json={"session_id": "q_unsupported", "query": "Plan my trip to the beach today"})
+    assert res.status_code == 200
+    data = res.json()
+    assert data["intent"] == QueryIntent.UNSUPPORTED
+    assert data["status"] == QueryStatus.UNSUPPORTED
+
+
 def test_query_analyze_response_schema(valid_geotiff_path):
     _setup("q_schema", [valid_geotiff_path])
     res = client.post("/api/v1/query/analyze", json={"session_id": "q_schema", "query": "Inspect image"})

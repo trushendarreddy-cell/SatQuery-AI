@@ -1,7 +1,14 @@
+from fastapi.testclient import TestClient
+
+from app.main import app
+from app.core.config import settings
+from app.core.session_cache import session_manager
 from app.pipeline.orchestrator import AnalysisOrchestrator
 from app.schemas.orchestration_schema import ExecutionResult, ExecutionStatus
 from app.schemas.query_schema import QueryIntent
 from app.reporting.report_generator import ReportGenerator
+
+client = TestClient(app)
 
 
 def make_execution_result(**overrides):
@@ -129,3 +136,49 @@ def test_unsupported_request_generates_structured_fallback():
     assert report.title == "Unsupported request"
     assert report.analysis_type == "unsupported"
     assert report.summary
+
+
+def test_report_ndvi_end_to_end_preserves_artifact_path(valid_geotiff_path):
+    session_manager.clear_all()
+    with open(valid_geotiff_path, "rb") as fh:
+        upload = client.post(
+            "/api/v1/ingest/upload",
+            files={"files": ("ndvi_case.tif", fh, "image/tiff")},
+        )
+    assert upload.status_code == 200
+    session_id = upload.json()["session_id"]
+
+    response = client.post(
+        "/api/v1/query/report",
+        json={"session_id": session_id, "query": "Compute NDVI", "use_llm": False, "use_vision": False},
+    )
+    assert response.status_code == 200
+    report = response.json()["report"]
+    assert report["analysis_type"] == "ndvi"
+    assert report["quantitative_results"]
+    assert report["artifacts"]
+    assert report["artifacts"][0]["path"]
+    assert report["artifacts"][0]["filename"].endswith(".tif")
+
+
+def test_report_falls_back_when_provider_is_unavailable(valid_geotiff_path, monkeypatch):
+    session_manager.clear_all()
+    monkeypatch.setattr(settings, "LLM_PROVIDER", "openai")
+    monkeypatch.setattr(settings, "LLM_API_KEY", "")
+
+    with open(valid_geotiff_path, "rb") as fh:
+        upload = client.post(
+            "/api/v1/ingest/upload",
+            files={"files": ("provider_case.tif", fh, "image/tiff")},
+        )
+    assert upload.status_code == 200
+    session_id = upload.json()["session_id"]
+
+    response = client.post(
+        "/api/v1/query/report",
+        json={"session_id": session_id, "query": "Compute NDVI", "use_llm": True, "use_vision": False},
+    )
+    assert response.status_code == 200
+    report = response.json()["report"]
+    assert report["analysis_type"] == "ndvi"
+    assert report["summary"]

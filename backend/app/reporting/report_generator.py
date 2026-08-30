@@ -33,10 +33,34 @@ class ReportGenerator:
         return f"{str(analysis_type).replace('_', ' ').title()} report"
 
     @staticmethod
+    def _normalize_analysis_type(value: Any) -> str:
+        if value is None:
+            return "unsupported"
+        if hasattr(value, "value"):
+            value = value.value
+        value = str(value).strip()
+        if "." in value:
+            value = value.split(".")[-1]
+        value = value.replace(" ", "_").lower()
+        return value or "unsupported"
+
+    @staticmethod
     def _analysis_type_name(execution: ExecutionResult) -> str:
         llm = execution.llm_interpretation or {}
         analysis_type = llm.get("analysis_type") or getattr(execution.intent, "value", str(execution.intent))
-        return str(analysis_type).lower()
+        normalized = ReportGenerator._normalize_analysis_type(analysis_type)
+
+        if normalized in {"unsupported", "vegetation_analysis"}:
+            for result in execution.results or []:
+                if not isinstance(result, dict):
+                    continue
+                for nested_key in ("spectral_index", "change_detection", "cloud_mask", "area", "overlap", "compatibility", "classification", "metadata"):
+                    nested = result.get(nested_key)
+                    if isinstance(nested, dict):
+                        nested_type = nested.get("index_type") or nested.get("analysis_type") or nested.get("type")
+                        if nested_type:
+                            return ReportGenerator._normalize_analysis_type(nested_type)
+        return normalized
 
     @staticmethod
     def _normalize_statistics(stats: Dict[str, Any]) -> List[QuantitativeResult]:
@@ -171,7 +195,9 @@ class ReportGenerator:
     def generate(execution: ExecutionResult, user_query: str, llm_interpretation: Optional[Dict[str, Any]] = None, visual_result: Optional[Dict[str, Any]] = None) -> Report:
         analysis_type = ReportGenerator._analysis_type_name(execution)
         if llm_interpretation:
-            analysis_type = str(llm_interpretation.get("analysis_type") or analysis_type).lower()
+            analysis_type = ReportGenerator._normalize_analysis_type(
+                llm_interpretation.get("analysis_type") or analysis_type
+            )
 
         data = execution.model_dump(exclude_none=True)
         findings: List[ReportFinding] = []

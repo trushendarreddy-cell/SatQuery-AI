@@ -319,8 +319,13 @@ class AnalysisOrchestrator:
             "session_id": result.get("session_id", ""),
         }
         found = False
+
+        if result.get("message"):
+            artifact["message"] = result.get("message")
+
         for key in (
             "artifact_filename",
+            "filename",
             "index_image_id",
             "change_mask_image_id",
             "mask_image_id",
@@ -328,11 +333,63 @@ class AnalysisOrchestrator:
             "alignment_image_id",
             "clip_image_id_1",
             "clip_image_id_2",
+            "analysis_type",
+            "type",
+            "index_type",
+            "path",
+            "file_path",
         ):
             value = result.get(key) or nested.get(key)
             if value:
                 artifact[key] = value
                 found = True
+
+        metadata = nested.get("index_metadata") or nested.get("mask_metadata") or nested.get("metadata")
+        if isinstance(metadata, dict):
+            for key in ("filename", "file_path", "path", "artifact_filename"):
+                value = metadata.get(key)
+                if value:
+                    artifact[key] = value
+                    found = True
+
+        if not artifact.get("filename") and artifact.get("artifact_filename"):
+            artifact["filename"] = artifact["artifact_filename"]
+
+        image_candidates = []
+        for key in (
+            "index_image_id",
+            "change_mask_image_id",
+            "mask_image_id",
+            "cloud_mask_image_id",
+            "alignment_image_id",
+            "clip_image_id_1",
+            "clip_image_id_2",
+            "image_id",
+        ):
+            value = result.get(key) or nested.get(key)
+            if value:
+                image_candidates.append(str(value))
+        if image_candidates:
+            session_id = str(artifact.get("session_id") or result.get("session_id") or "")
+            for image_id in image_candidates:
+                resolved = session_manager.get_image_file_path(session_id, image_id)
+                if resolved:
+                    artifact["path"] = str(resolved)
+                    artifact["file_path"] = str(resolved)
+                    found = True
+                    break
+
+        if not artifact.get("path") and artifact.get("filename"):
+            session_id = str(artifact.get("session_id") or result.get("session_id") or "")
+            if session_id:
+                for image_id in image_candidates:
+                    resolved = session_manager.get_image_file_path(session_id, image_id)
+                    if resolved:
+                        artifact["path"] = str(resolved)
+                        artifact["file_path"] = str(resolved)
+                        found = True
+                        break
+
         if found:
             artifacts.append(artifact)
 
