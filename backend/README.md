@@ -572,7 +572,9 @@ alembic upgrade head
 SatQuery AI – Smart India Hackathon 2026
 
 ---
-##T.Rushendar Reddy
+T.Rushendar Reddy
+
 AIML student 
+
 Vignan university 
 Hyderabad 
