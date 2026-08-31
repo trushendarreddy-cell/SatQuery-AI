@@ -568,53 +568,11 @@ alembic upgrade head
 
 ---
 
-## Troubleshooting
-
-### Issue: Database Connection Error
-- Check `DATABASE_URL` environment variable
-- For SQLite: ensure `CACHE_DIR` and `UPLOAD_DIR` directories exist
-- For MySQL: verify credentials and server is running
-
-### Issue: Upload Fails with 422
-- Check file is a valid image (GeoTIFF, JPEG, or PNG)
-- Verify file size is under `MAX_UPLOAD_SIZE_BYTES`
-- For GeoTIFF: ensure CRS and geotransform are present
-
-### Issue: Query Returns "Unsupported"
-- Verify images are uploaded to the session
-- Check query uses recognizable terms (e.g., "NDVI", "change", "cloud")
-- Try using the `/api/v1/query/analyze` endpoint to debug the planner
-
-### Issue: LLM Calls Failing
-- Verify `LLM_PROVIDER` is set and credentials are correct
-- Check API key has required permissions
-- Backend gracefully falls back to deterministic mode if LLM unavailable
-
----
-
-## Integration with Master Agent
-
-The backend provides durable, queryable endpoints for a coordinator/Master Agent:
-
-- **Session API:** Stable session_id for multi-turn conversations
-- **Artifact API:** Download and inspect generated rasters and reports
-- **Evidence API:** Retrieve execution evidence for grounding
-- **Status API:** Health checks and readiness probes
-
-The Master Agent should:
-- Use the session API to manage session lifecycle
-- Call `/api/v1/query/orchestrate` or `/api/v1/query/report` for deterministic analysis
-- Call `/api/v1/agent/query` for interactive agent-driven workflows
-- Download artifacts from `/api/v1/session/{session_id}/artifacts/{filename}`
-
----
-
-## License & Attribution
 
 SatQuery AI – Smart India Hackathon 2026
 
 ---
-T.Rushendar Reddy
+##T.Rushendar Reddy
 AIML student 
 Vignan university 
 Hyderabad 
