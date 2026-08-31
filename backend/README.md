@@ -614,7 +614,7 @@ The Master Agent should:
 SatQuery AI – Smart India Hackathon 2026
 
 ---
-
-## Support & Contributing
-
-For issues, feature requests, or contributions, refer to the project's GitHub repository or contact the development team.
+T.Rushendar Reddy
+AIML student 
+Vignan university 
+Hyderabad 
