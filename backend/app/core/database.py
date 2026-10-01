@@ -17,11 +17,11 @@ from app.db import models  # noqa: F401,E402
 
 connect_args = {}
 engine_kwargs = {"pool_pre_ping": True}
-if settings.DATABASE_URL.startswith("sqlite"):
+if settings.resolved_database_url().startswith("sqlite"):
     connect_args = {"check_same_thread": False}
     engine_kwargs["connect_args"] = connect_args
 
-engine = create_engine(settings.DATABASE_URL, **engine_kwargs)
+engine = create_engine(settings.resolved_database_url(), **engine_kwargs)
 SessionLocal = sessionmaker(bind=engine, autoflush=False, autocommit=False, expire_on_commit=False)
 
 

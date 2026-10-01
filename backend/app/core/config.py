@@ -21,10 +21,24 @@ class Settings:
     MAX_UPLOAD_SIZE_BYTES: int = int(os.getenv("MAX_UPLOAD_SIZE_BYTES", str(50 * 1024 * 1024)))
 
     # Database configuration
-    DATABASE_URL: str = os.getenv(
-        "DATABASE_URL",
-        "sqlite:///" + (BASE_DIR / "temp" / "satquery.db").resolve().as_posix(),
-    )
+    DATABASE_URL: str = os.getenv("DATABASE_URL", "")
+
+    @classmethod
+    def resolved_database_url(cls) -> str:
+        """Return the database URL, creating the SQLite parent directory.
+
+        On Linux a SQLite file whose parent directory does not exist is not
+        created at all, and create_all() then silently leaves an empty
+        database behind. The temp/ directory is gitignored, so a fresh clone
+        does not have it and every persistence test failed with
+        "no such table: sessions" until this was fixed.
+        """
+        if cls.DATABASE_URL:
+            return cls.DATABASE_URL
+
+        db_path = cls.BASE_DIR / "temp" / "satquery.db"
+        db_path.parent.mkdir(parents=True, exist_ok=True)
+        return "sqlite:///" + db_path.resolve().as_posix()
 
     # LLM provider configuration
     LLM_PROVIDER: str = os.getenv("LLM_PROVIDER", "openai")
