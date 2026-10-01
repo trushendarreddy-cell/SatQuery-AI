@@ -11,6 +11,9 @@ venv/
 .venv/
 env/
 ENV/
+# Locally-named virtualenvs, e.g. dev-venv, scratch-env, myenv
+*env/
+*venv*/
 
 # Temporary and Cache Directories
 temp/
