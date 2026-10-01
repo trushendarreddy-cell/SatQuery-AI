@@ -7,6 +7,22 @@ from rasterio.warp import transform_bounds
 from pathlib import Path
 
 
+@pytest.fixture(scope="session", autouse=True)
+def _ensure_schema():
+    """Create the SQLite schema once for the whole session.
+
+    app.core.database calls create_all() at import time, but nothing forces
+    that module to be imported before the persistence tests run. A test module
+    that only touches app.core.session_cache leaves the database file created
+    but empty, and every persistence test then fails with "no such table:
+    sessions". Importing and initialising here makes the suite order-independent.
+    """
+    from app.core.database import init_db
+
+    init_db()
+    yield
+
+
 @pytest.fixture(scope="session")
 def valid_geotiff_path(tmp_path_factory):
     """Generates a small valid GeoTIFF with CRS, geotransform, and acquisition date tag (UTM 43N)."""
