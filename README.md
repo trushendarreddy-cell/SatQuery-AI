@@ -44,6 +44,63 @@ SatQuery is an active Smart India Hackathon 2026 project and is still evolving. 
 
 The repository should therefore be read as an active engineering project, not as a claim that every planned satellite-analysis capability is production-ready.
 
+## Running it
+
+### Requirements
+
+- Python 3.11 or newer
+- No database server is needed. SQLite is created on first run under `backend/temp/`.
+
+### Install and run
+
+```bash
+cd backend
+pip install -r requirements.txt
+uvicorn app.main:app --reload
+```
+
+The API is then on `http://localhost:8000`, with interactive docs at `/docs`
+and a health check at `/health`.
+
+`temp/` is created automatically. It is gitignored, so a fresh checkout needs
+no setup step.
+
+### Tests
+
+```bash
+cd backend
+pytest -q
+```
+
+258 tests covering GeoTIFF validation, spectral indices, cloud masking,
+change detection, alignment, zonal statistics, the agent tooling, and
+persistence. CI runs the suite on every push.
+
+### Endpoints
+
+Everything is mounted under `/api/v1`:
+
+| Group | Prefix | Purpose |
+|---|---|---|
+| Ingest | `/ingest` | Upload and profile a raster or photograph |
+| Session | `/session` | Scene classification and session state |
+| Spatial | `/spatial` | CRS alignment and compatibility checks |
+| Analysis | `/analysis` | Spectral indices, cloud mask, seasonal filter, area, zonal stats |
+| Query | `/query` | Query planning, orchestration, reports |
+| Agent | `/agent` | Agent context and tool invocation |
+
+### Configuration
+
+All optional. Without keys the deterministic geospatial endpoints still work;
+the model-backed query and vision paths need a provider.
+
+| Variable | Purpose |
+|---|---|
+| `DATABASE_URL` | Override the SQLite path |
+| `LLM_PROVIDER` | `openai` (default), `gemini`, or `ollama` |
+| `LLM_API_KEY` | Key for the chosen provider |
+| `CORS_ALLOWED_ORIGINS` | Comma-separated origins |
+
 ## Tech direction
 
 - Python
