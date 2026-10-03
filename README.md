@@ -115,6 +115,10 @@ the model-backed query and vision paths need a provider.
 
 The dashboard and local vision-language interface are maintained in the **SatQuery-AI-fronend-v4** repository.
 
+## License
+
+MIT — see [LICENSE](LICENSE).
+
 ## Author
 
 **T. Rushendar Reddy**  
