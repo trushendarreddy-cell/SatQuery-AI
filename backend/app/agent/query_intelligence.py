@@ -7,7 +7,6 @@ executes analysis tools or computes geospatial results.
 from __future__ import annotations
 
 import json
-import re
 from typing import Any, Dict, List, Optional
 
 from app.agent.llm import MockLLMProvider, get_llm_provider
@@ -18,6 +17,50 @@ from app.schemas.query_intelligence_schema import (
     LLMInterpretationResponse,
     QueryInterpretation,
 )
+
+
+def _first_json_object(text: str) -> str:
+    """Return the first complete, parseable JSON object found in ``text``.
+
+    Walks the string tracking brace depth and string state instead of using a
+    regex. A greedy ``\{.*\}`` matches from the first brace to the last one in
+    the entire reply, so any response mentioning two objects captured the
+    span between them and failed to parse. Candidates that do not parse are
+    skipped so the scan can continue to the next opening brace.
+    """
+    depth = 0
+    start = -1
+    in_string = False
+    escaped = False
+
+    for index, char in enumerate(text):
+        if in_string:
+            if escaped:
+                escaped = False
+            elif char == "\\":
+                escaped = True
+            elif char == '"':
+                in_string = False
+            continue
+
+        if char == '"':
+            in_string = True
+        elif char == "{":
+            if depth == 0:
+                start = index
+            depth += 1
+        elif char == "}":
+            if depth > 0:
+                depth -= 1
+                if depth == 0 and start >= 0:
+                    candidate = text[start : index + 1]
+                    try:
+                        json.loads(candidate)
+                    except json.JSONDecodeError:
+                        continue
+                    return candidate
+
+    raise ValueError("Malformed LLM response: not valid JSON")
 
 
 class QueryIntelligenceService:
@@ -65,12 +108,12 @@ class QueryIntelligenceService:
         try:
             loaded = json.loads(text)
         except json.JSONDecodeError:
-            # If the provider returns a plain text summary with a key-like phrase, try to
-            # recover a valid dict from the first JSON object in the text.
-            match = re.search(r"\{.*\}", text, re.DOTALL)
-            if not match:
-                raise ValueError("Malformed LLM response: not valid JSON")
-            loaded = json.loads(match.group(0))
+            # The provider returned prose around the JSON. Recover the first
+            # complete object with a brace-depth scan rather than a regex:
+            # a greedy \{.*\} spans from the first brace to the last one in
+            # the whole reply, so a response containing two objects captured
+            # junk and lost the model's answer entirely.
+            loaded = json.loads(_first_json_object(text))
 
         if not isinstance(loaded, dict):
             raise ValueError("LLM response was not a JSON object.")
